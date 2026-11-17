@@ -200,6 +200,7 @@ _LONG_HANDLERS = frozenset({
     "wake.status", "session.active_list", "session.branch", "session.compress", "session.list",
     "session.resume", "session.save", "session.workspace.move", "shell.exec", "skills.manage", "slash.exec",
     "onboarding.start", "onboarding.state", "subagent.roster",
+    "session.submit_attributed", "session.task_create", "session.ongoing_open",
     "command.dispatch",  # /goal draft invokes the auxiliary model; never block the RPC reader
     "shared_metrics.set",  # consent reconcile waits on the metrics store's write lock
 })
@@ -770,6 +771,9 @@ def register_method(name: str, fn) -> None:
     """The ONE registration seam (``@method`` here and ``HandlerRegistry.install`` for the split
     modules). ``tests/tui_gateway/contracts/test_generated.py::test_every_method_has_a_contract`` and the
     generator's ``assert_complete`` fail when a registered name has no contract."""
+    if name == 'prompt.submit':
+        from .client_attribution import serialized_submit
+        fn = serialized_submit(fn)
     _methods[name] = fn
 
 
@@ -2029,3 +2033,6 @@ for _m in (
     _methods_i18n, _methods_machine, _methods_shared_metrics, _methods_plugin_catalog):
     _m.register(sys.modules[__name__])
 del _m
+
+from . import client_attribution as _client_attribution
+_client_attribution.register(sys.modules[__name__])

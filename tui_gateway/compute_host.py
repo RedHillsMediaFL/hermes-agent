@@ -238,6 +238,8 @@ class ComputeHost:
         try:
             from tui_gateway import server
             session = self._ensure_server_session(server, frame)
+            if isinstance(frame.get('submit_user_row'), dict):
+                session['_submit_user_row'] = dict(frame['submit_user_row'])
             # #101416: the parent already holds this session's active-session lease (claimed in
             # prompt.submit before routing here). Install the inert borrow BEFORE the turn runs, or
             # _admit_prompt_turn re-claims from this child pid and is fenced out by the parent's own

@@ -5,7 +5,8 @@ listing/browsing stored rows, spawn-tree snapshots, event replay and the statele
 
 from __future__ import annotations
 
-from pydantic import Field
+from pydantic import Field, StrictInt
+from typing import Literal
 
 from .base import JsonValue, Params, Result, WireEnum
 from .common import (OpenModel, PendingApproval, ProfileParams, SessionLiveInfo, SessionParams, TranscriptMessage,
@@ -96,6 +97,91 @@ class LiveSessionSnapshot(Result):
     pending_connection: ConnectionRequestPayload | None = None
     todo_state: TodoState | None = None
     auto_continue: AutoContinue | None = None
+
+
+class DurableSourceRef(Params):
+    session_id: str = Field(min_length=1, max_length=200)
+    row_id: StrictInt = Field(ge=1, le=2**53-1)
+    message_uid: str = Field(min_length=1, max_length=200)
+
+
+class AttributedAttachment(Params):
+    path: str = Field(min_length=1, max_length=4096)
+    kind: Literal['image', 'file', 'pdf']
+    name: str = Field(min_length=1, max_length=255)
+    mime_type: str = Field(min_length=1, max_length=128)
+    size: StrictInt = Field(ge=1, le=25*1024*1024)
+
+
+class DurableMessageSnapshot(Result):
+    text: str
+    timestamp: float
+    truncated: bool
+
+
+class StoredMessageReference(DurableSourceRef):
+    profile: str
+    role: Literal['user', 'assistant']
+    snapshot: DurableMessageSnapshot
+
+
+class TaskThread(Result):
+    thread_id: str
+    profile: str
+    title: str
+    parent_session_id: str
+    origin: StoredMessageReference
+    created_at: float
+
+
+class AttributedSubmitParams(SessionParams):
+    operation_id: str
+    text: str
+    reply_to: DurableSourceRef
+    attachments: list[AttributedAttachment] = Field(default_factory=list, max_length=16)
+
+
+class AttributedSubmitResult(Result):
+    status: Literal['streaming', 'accepted']
+    disposition: Literal['accepted', 'already_accepted']
+    operation_id: str
+    runtime_session_id: str
+    stored_session_id: str
+    user_message: StoredMessageReference
+    reply_to: StoredMessageReference
+    replayed: bool
+
+
+class TaskCreateParams(ProfileParams):
+    operation_id: str
+    origin: DurableSourceRef
+    title: str = Field(min_length=1, max_length=120)
+    source: Literal['ios', 'desktop'] = 'ios'
+
+
+class OngoingOpenParams(ProfileParams):
+    source: Literal['ios', 'desktop'] = 'ios'
+
+
+class TaskCreateResult(Result):
+    thread: TaskThread
+    session: LiveSessionSnapshot
+    replayed: bool
+
+
+class OngoingOpenResult(Result):
+    profile: str
+    stored_session_id: str
+    session: LiveSessionSnapshot
+    created: bool
+
+
+method('session.submit_attributed', params=AttributedSubmitParams, result=AttributedSubmitResult,
+       doc='Owner-validated durable reply admission. Busy refuses before persistence; exact retries replay the accepted row without rerunning inference.')
+method('session.task_create', params=TaskCreateParams, result=TaskCreateResult,
+       doc='Atomically create one durable independent task session from a verified message reference.')
+method('session.ongoing_open', params=OngoingOpenParams, result=OngoingOpenResult,
+       doc='Ensure and resume the explicit ongoing conversation mapped to this profile.')
 
 
 # ── session.create ────────────────────────────────────────────────────────────────────────────

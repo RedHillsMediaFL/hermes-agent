@@ -3571,6 +3571,24 @@
       }
     },
     {
+      "name": "session.ongoing_open",
+      "summary": "Ensure and resume the explicit ongoing conversation mapped to this profile.",
+      "params": [
+        {
+          "name": "params",
+          "schema": {
+            "$ref": "#/components/schemas/OngoingOpenParams"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "$ref": "#/components/schemas/OngoingOpenResult"
+        }
+      }
+    },
+    {
       "name": "session.redirect",
       "summary": "Redirect the active turn (queued for the next turn while the agent is still building).",
       "params": [
@@ -3675,6 +3693,42 @@
         "name": "result",
         "schema": {
           "$ref": "#/components/schemas/SessionCorrectionResult"
+        }
+      }
+    },
+    {
+      "name": "session.submit_attributed",
+      "summary": "Owner-validated durable reply admission. Busy refuses before persistence; exact retries replay the accepted row without rerunning inference.",
+      "params": [
+        {
+          "name": "params",
+          "schema": {
+            "$ref": "#/components/schemas/AttributedSubmitParams"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "$ref": "#/components/schemas/AttributedSubmitResult"
+        }
+      }
+    },
+    {
+      "name": "session.task_create",
+      "summary": "Atomically create one durable independent task session from a verified message reference.",
+      "params": [
+        {
+          "name": "params",
+          "schema": {
+            "$ref": "#/components/schemas/TaskCreateParams"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "$ref": "#/components/schemas/TaskCreateResult"
         }
       }
     },
@@ -5798,6 +5852,156 @@
           "attached"
         ],
         "title": "AttachedImageResult",
+        "type": "object"
+      },
+      "AttributedAttachment": {
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Path",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "image",
+              "file",
+              "pdf"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "mime_type": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Mime Type",
+            "type": "string"
+          },
+          "size": {
+            "maximum": 26214400,
+            "minimum": 1,
+            "title": "Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "path",
+          "kind",
+          "name",
+          "mime_type",
+          "size"
+        ],
+        "title": "AttributedAttachment",
+        "type": "object"
+      },
+      "AttributedSubmitParams": {
+        "additionalProperties": false,
+        "properties": {
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "profile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Profile"
+          },
+          "operation_id": {
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "reply_to": {
+            "$ref": "#/components/schemas/DurableSourceRef"
+          },
+          "attachments": {
+            "items": {
+              "$ref": "#/components/schemas/AttributedAttachment"
+            },
+            "maxItems": 16,
+            "title": "Attachments",
+            "type": "array"
+          }
+        },
+        "required": [
+          "session_id",
+          "operation_id",
+          "text",
+          "reply_to"
+        ],
+        "title": "AttributedSubmitParams",
+        "type": "object"
+      },
+      "AttributedSubmitResult": {
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "enum": [
+              "streaming",
+              "accepted"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "disposition": {
+            "enum": [
+              "accepted",
+              "already_accepted"
+            ],
+            "title": "Disposition",
+            "type": "string"
+          },
+          "operation_id": {
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "runtime_session_id": {
+            "title": "Runtime Session Id",
+            "type": "string"
+          },
+          "stored_session_id": {
+            "title": "Stored Session Id",
+            "type": "string"
+          },
+          "user_message": {
+            "$ref": "#/components/schemas/StoredMessageReference"
+          },
+          "reply_to": {
+            "$ref": "#/components/schemas/StoredMessageReference"
+          },
+          "replayed": {
+            "title": "Replayed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "status",
+          "disposition",
+          "operation_id",
+          "runtime_session_id",
+          "stored_session_id",
+          "user_message",
+          "reply_to",
+          "replayed"
+        ],
+        "title": "AttributedSubmitResult",
         "type": "object"
       },
       "AutoContinue": {
@@ -18536,6 +18740,60 @@
         "title": "DisplayThumbnailResult",
         "type": "object"
       },
+      "DurableMessageSnapshot": {
+        "additionalProperties": false,
+        "properties": {
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "timestamp": {
+            "title": "Timestamp",
+            "type": "number"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "text",
+          "timestamp",
+          "truncated"
+        ],
+        "title": "DurableMessageSnapshot",
+        "type": "object"
+      },
+      "DurableSourceRef": {
+        "additionalProperties": false,
+        "properties": {
+          "session_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Session Id",
+            "type": "string"
+          },
+          "row_id": {
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "title": "Row Id",
+            "type": "integer"
+          },
+          "message_uid": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Message Uid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "row_id",
+          "message_uid"
+        ],
+        "title": "DurableSourceRef",
+        "type": "object"
+      },
       "EmptyRequestParams": {
         "additionalProperties": false,
         "properties": {
@@ -22929,6 +23187,227 @@
         "title": "LegacyPluginRow",
         "type": "object"
       },
+      "LiveSessionSnapshot": {
+        "additionalProperties": false,
+        "description": "Union of ``server._live_session_payload``, ``methods_session._resume_response`` and the\nlive-unpersisted resume path; keys only some paths produce are optional.",
+        "properties": {
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "message_count": {
+            "title": "Message Count",
+            "type": "integer"
+          },
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/TranscriptMessage"
+            },
+            "title": "Messages",
+            "type": "array"
+          },
+          "info": {
+            "$ref": "#/components/schemas/SessionLiveInfo"
+          },
+          "stored_session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Stored Session Id"
+          },
+          "resumed": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Resumed"
+          },
+          "session_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Session Key"
+          },
+          "messages_omitted": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Messages Omitted"
+          },
+          "hydrating": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Hydrating"
+          },
+          "running": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Running"
+          },
+          "turn_started_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Turn Started At"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Started At"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Status"
+          },
+          "inflight": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InflightTurn"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "queued": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QueuedPrompt"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "pending_approval": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PendingApproval"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "open_requests": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/OpenRequestEntry"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Open Requests"
+          },
+          "pending_connection": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConnectionRequestPayload"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "todo_state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TodoState"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "auto_continue": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AutoContinue"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "session_id",
+          "message_count",
+          "messages",
+          "info"
+        ],
+        "title": "LiveSessionSnapshot",
+        "type": "object"
+      },
       "LiveSessionStatus": {
         "enum": [
           "idle",
@@ -26171,6 +26650,62 @@
           }
         },
         "title": "OnboardingStateParams",
+        "type": "object"
+      },
+      "OngoingOpenParams": {
+        "additionalProperties": false,
+        "properties": {
+          "profile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Profile"
+          },
+          "source": {
+            "default": "ios",
+            "enum": [
+              "ios",
+              "desktop"
+            ],
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "title": "OngoingOpenParams",
+        "type": "object"
+      },
+      "OngoingOpenResult": {
+        "additionalProperties": false,
+        "properties": {
+          "profile": {
+            "title": "Profile",
+            "type": "string"
+          },
+          "stored_session_id": {
+            "title": "Stored Session Id",
+            "type": "string"
+          },
+          "session": {
+            "$ref": "#/components/schemas/LiveSessionSnapshot"
+          },
+          "created": {
+            "title": "Created",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "profile",
+          "stored_session_id",
+          "session",
+          "created"
+        ],
+        "title": "OngoingOpenResult",
         "type": "object"
       },
       "OpenRequestEntry": {
@@ -44112,6 +44647,54 @@
         "title": "SteerStatus",
         "type": "string"
       },
+      "StoredMessageReference": {
+        "additionalProperties": false,
+        "properties": {
+          "session_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Session Id",
+            "type": "string"
+          },
+          "row_id": {
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "title": "Row Id",
+            "type": "integer"
+          },
+          "message_uid": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Message Uid",
+            "type": "string"
+          },
+          "profile": {
+            "title": "Profile",
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "user",
+              "assistant"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/DurableMessageSnapshot"
+          }
+        },
+        "required": [
+          "session_id",
+          "row_id",
+          "message_uid",
+          "profile",
+          "role",
+          "snapshot"
+        ],
+        "title": "StoredMessageReference",
+        "type": "object"
+      },
       "StoredTranscriptParams": {
         "additionalProperties": false,
         "properties": {
@@ -44333,6 +44916,18 @@
             ],
             "default": null,
             "title": "Row Id"
+          },
+          "message_uid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Message Uid"
           },
           "display_kind": {
             "anyOf": [
@@ -45993,6 +46588,74 @@
         "title": "SystemBatteryResult",
         "type": "object"
       },
+      "TaskCreateParams": {
+        "additionalProperties": false,
+        "properties": {
+          "profile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Profile"
+          },
+          "operation_id": {
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/DurableSourceRef"
+          },
+          "title": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "source": {
+            "default": "ios",
+            "enum": [
+              "ios",
+              "desktop"
+            ],
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation_id",
+          "origin",
+          "title"
+        ],
+        "title": "TaskCreateParams",
+        "type": "object"
+      },
+      "TaskCreateResult": {
+        "additionalProperties": false,
+        "properties": {
+          "thread": {
+            "$ref": "#/components/schemas/TaskThread"
+          },
+          "session": {
+            "$ref": "#/components/schemas/LiveSessionSnapshot"
+          },
+          "replayed": {
+            "title": "Replayed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "thread",
+          "session",
+          "replayed"
+        ],
+        "title": "TaskCreateResult",
+        "type": "object"
+      },
       "TaskIdResult": {
         "additionalProperties": false,
         "description": "The side agent runs detached; its answer lands on the parent session as an event carrying\nthis ``task_id``.",
@@ -46006,6 +46669,44 @@
           "task_id"
         ],
         "title": "TaskIdResult",
+        "type": "object"
+      },
+      "TaskThread": {
+        "additionalProperties": false,
+        "properties": {
+          "thread_id": {
+            "title": "Thread Id",
+            "type": "string"
+          },
+          "profile": {
+            "title": "Profile",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "parent_session_id": {
+            "title": "Parent Session Id",
+            "type": "string"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/StoredMessageReference"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "number"
+          }
+        },
+        "required": [
+          "thread_id",
+          "profile",
+          "title",
+          "parent_session_id",
+          "origin",
+          "created_at"
+        ],
+        "title": "TaskThread",
         "type": "object"
       },
       "TerminalClosePayload": {
@@ -47289,6 +47990,18 @@
             ],
             "default": null,
             "title": "Row Id"
+          },
+          "message_uid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Message Uid"
           },
           "display_kind": {
             "anyOf": [

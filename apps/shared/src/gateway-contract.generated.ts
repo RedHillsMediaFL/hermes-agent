@@ -3192,6 +3192,179 @@ export interface WakeFeedResult {
   reason?: string | null
   fed: boolean
 }
+export interface AttributedSubmitParams {
+  session_id: string
+  profile?: string | null
+  operation_id: string
+  text: string
+  reply_to: DurableSourceRef
+  attachments?: AttributedAttachment[]
+}
+export interface DurableSourceRef {
+  session_id: string
+  row_id: number
+  message_uid: string
+}
+export interface AttributedAttachment {
+  path: string
+  kind: 'image' | 'file' | 'pdf'
+  name: string
+  mime_type: string
+  size: number
+}
+export interface AttributedSubmitResult {
+  status: 'streaming' | 'accepted'
+  disposition: 'accepted' | 'already_accepted'
+  operation_id: string
+  runtime_session_id: string
+  stored_session_id: string
+  user_message: StoredMessageReference
+  reply_to: StoredMessageReference
+  replayed: boolean
+}
+export interface StoredMessageReference {
+  session_id: string
+  row_id: number
+  message_uid: string
+  profile: string
+  role: 'user' | 'assistant'
+  snapshot: DurableMessageSnapshot
+}
+export interface DurableMessageSnapshot {
+  text: string
+  timestamp: number
+  truncated: boolean
+}
+export interface TaskCreateParams {
+  profile?: string | null
+  operation_id: string
+  origin: DurableSourceRef
+  title: string
+  source?: 'ios' | 'desktop'
+}
+export interface TaskCreateResult {
+  thread: TaskThread
+  session: LiveSessionSnapshot
+  replayed: boolean
+}
+export interface TaskThread {
+  thread_id: string
+  profile: string
+  title: string
+  parent_session_id: string
+  origin: StoredMessageReference
+  created_at: number
+}
+/** Union of ``server._live_session_payload``, ``methods_session._resume_response`` and the live-unpersisted resume path; keys only some paths produce are optional. */
+export interface LiveSessionSnapshot {
+  session_id: string
+  message_count: number
+  messages: TranscriptMessage[]
+  info: SessionLiveInfo
+  stored_session_id?: string | null
+  resumed?: string | null
+  session_key?: string | null
+  messages_omitted?: boolean | null
+  hydrating?: boolean | null
+  running?: boolean | null
+  turn_started_at?: number | null
+  started_at?: number | null
+  status?: string | null
+  inflight?: InflightTurn | null
+  queued?: QueuedPrompt | null
+  pending_approval?: PendingApproval | null
+  open_requests?: OpenRequestEntry[] | null
+  pending_connection?: ConnectionRequestPayload | null
+  todo_state?: TodoState | null
+  auto_continue?: AutoContinue | null
+}
+/** One transcript row as the gateway PROJECTS it for renderers (``session_history._project_history``): ``text``, display-only ``timestamp`` / ``display_kind`` / ``display_metadata``, the durable ``row_id`` rewind targets, and for tool rows raw ``content``, ``tool_call_id``, ``name``, ``context`` and ``args``. Assistant detail sidecars (``reasoning``, …) ride as extra keys. */
+export interface TranscriptMessage {
+  role: string
+  text?: string | null
+  content?: unknown | null
+  tool_call_id?: string | null
+  timestamp?: number | null
+  row_id?: number | null
+  message_uid?: string | null
+  display_kind?: string | null
+  display_metadata?: unknown | null
+  name?: string | null
+  context?: string | null
+  args?: Record<string, unknown> | null
+  labels?: ToolLabel[] | null
+  reasoning?: string | null
+  [key: string]: unknown
+}
+/** ``tools.tool_labels.ToolLabel`` — what one call executed through the tool_search bridge is, in words. Clients render ``text`` (or ``app``/``action`` in their own columns) and never parse the tool name themselves. */
+export interface ToolLabel {
+  kind: ToolLabelKind
+  app: string
+  action: string
+  emoji: string
+  text: string
+  name: string
+  preview?: string
+}
+/** Which surface one inner call of a bridged ``tool_call`` runs on. */
+export type ToolLabelKind = 'connector' | 'mcp' | 'tool'
+/** ``session_auto_continue._inflight_snapshot``: the live (or retained failed) turn a reconnecting client rebuilds its bubbles from. */
+export interface InflightTurn {
+  assistant?: string
+  streaming?: boolean
+  user?: string
+  display_kind?: string | null
+  display_metadata?: Record<string, unknown> | null
+  corrections?: string[] | null
+  correction_offsets?: number[] | null
+  error?: string | null
+  status?: string | null
+  recoverable?: boolean | null
+  error_surface?: Record<string, unknown> | null
+}
+export interface QueuedPrompt {
+  user: string
+}
+/** One unanswered server→client request (``server_requests.Request.snapshot``); the reconnecting client re-delivers it to its request handlers. */
+export interface OpenRequestEntry {
+  id: string
+  method: string
+  params: Record<string, unknown>
+}
+/** ``ConnectionOperation.request_payload``: opens the card; also the ``pending_connection`` resume snapshot so a client that missed the event restores the card with the server's deadline. */
+export interface ConnectionRequestPayload {
+  op_id: string
+  seq: number
+  deadline_at: number
+  timeout_seconds: number
+  targets: ConnectionOperationTarget[]
+  tool_call_id?: string | null
+  display?: ConnectionDisplay | null
+}
+/** ``manage_connections`` action ``display``: the directory card, with these slugs pinned as Suggested. */
+export interface ConnectionDisplay {
+  suggested: string[]
+}
+/** ``tool_progress._normalize_todo_state``: the authoritative todo snapshot. */
+export interface TodoState {
+  todos: Record<string, unknown>[]
+  revision: number
+}
+/** A crash-interrupted turn was scheduled to continue right after this resume. */
+export interface AutoContinue {
+  attempt: number
+  interrupted_at: number
+}
+export interface OngoingOpenParams {
+  profile?: string | null
+  source?: 'ios' | 'desktop'
+}
+export interface OngoingOpenResult {
+  profile: string
+  stored_session_id: string
+  session: LiveSessionSnapshot
+  created: boolean
+}
 export interface SessionCreateParams {
   profile?: string | null
   cols?: number | null
@@ -3227,35 +3400,6 @@ export interface SessionCreateResult {
   messages: TranscriptMessage[]
   info: SessionLiveInfo
 }
-/** One transcript row as the gateway PROJECTS it for renderers (``session_history._project_history``): ``text``, display-only ``timestamp`` / ``display_kind`` / ``display_metadata``, the durable ``row_id`` rewind targets, and for tool rows raw ``content``, ``tool_call_id``, ``name``, ``context`` and ``args``. Assistant detail sidecars (``reasoning``, …) ride as extra keys. */
-export interface TranscriptMessage {
-  role: string
-  text?: string | null
-  content?: unknown | null
-  tool_call_id?: string | null
-  timestamp?: number | null
-  row_id?: number | null
-  display_kind?: string | null
-  display_metadata?: unknown | null
-  name?: string | null
-  context?: string | null
-  args?: Record<string, unknown> | null
-  labels?: ToolLabel[] | null
-  reasoning?: string | null
-  [key: string]: unknown
-}
-/** ``tools.tool_labels.ToolLabel`` — what one call executed through the tool_search bridge is, in words. Clients render ``text`` (or ``app``/``action`` in their own columns) and never parse the tool name themselves. */
-export interface ToolLabel {
-  kind: ToolLabelKind
-  app: string
-  action: string
-  emoji: string
-  text: string
-  name: string
-  preview?: string
-}
-/** Which surface one inner call of a bridged ``tool_call`` runs on. */
-export type ToolLabelKind = 'connector' | 'mcp' | 'tool'
 export interface SessionBranchStoredParams {
   profile?: string | null
   parent_session_id: string
@@ -3305,53 +3449,6 @@ export interface SessionResumeResult {
   pending_connection?: ConnectionRequestPayload | null
   todo_state?: TodoState | null
   auto_continue?: AutoContinue | null
-}
-/** ``session_auto_continue._inflight_snapshot``: the live (or retained failed) turn a reconnecting client rebuilds its bubbles from. */
-export interface InflightTurn {
-  assistant?: string
-  streaming?: boolean
-  user?: string
-  display_kind?: string | null
-  display_metadata?: Record<string, unknown> | null
-  corrections?: string[] | null
-  correction_offsets?: number[] | null
-  error?: string | null
-  status?: string | null
-  recoverable?: boolean | null
-  error_surface?: Record<string, unknown> | null
-}
-export interface QueuedPrompt {
-  user: string
-}
-/** One unanswered server→client request (``server_requests.Request.snapshot``); the reconnecting client re-delivers it to its request handlers. */
-export interface OpenRequestEntry {
-  id: string
-  method: string
-  params: Record<string, unknown>
-}
-/** ``ConnectionOperation.request_payload``: opens the card; also the ``pending_connection`` resume snapshot so a client that missed the event restores the card with the server's deadline. */
-export interface ConnectionRequestPayload {
-  op_id: string
-  seq: number
-  deadline_at: number
-  timeout_seconds: number
-  targets: ConnectionOperationTarget[]
-  tool_call_id?: string | null
-  display?: ConnectionDisplay | null
-}
-/** ``manage_connections`` action ``display``: the directory card, with these slugs pinned as Suggested. */
-export interface ConnectionDisplay {
-  suggested: string[]
-}
-/** ``tool_progress._normalize_todo_state``: the authoritative todo snapshot. */
-export interface TodoState {
-  todos: Record<string, unknown>[]
-  revision: number
-}
-/** A crash-interrupted turn was scheduled to continue right after this resume. */
-export interface AutoContinue {
-  attempt: number
-  interrupted_at: number
 }
 export interface SessionActivateParams {
   session_id: string
@@ -5620,6 +5717,7 @@ export interface StoredTranscriptRow {
   tool_call_id?: string | null
   timestamp?: number | null
   row_id?: number | null
+  message_uid?: string | null
   display_kind?: string | null
   display_metadata?: unknown | null
   name?: string | null
@@ -6745,6 +6843,8 @@ export interface RpcMethods {
   'session.list': { params: SessionListParams; result: SessionListResult }
   /** Most recent human-facing session; errors fold into a null session_id. */
   'session.most_recent': { params: SessionMostRecentParams; result: SessionMostRecentResult }
+  /** Ensure and resume the explicit ongoing conversation mapped to this profile. */
+  'session.ongoing_open': { params: OngoingOpenParams; result: OngoingOpenResult }
   /** Redirect the active turn (queued for the next turn while the agent is still building). */
   'session.redirect': { params: SessionCorrectionParams; result: SessionCorrectionResult }
   /** Attach to a stored session: reuse it if live here, else lazy / deferred / cold / eager rebuild. */
@@ -6757,6 +6857,10 @@ export interface RpcMethods {
   'session.status': { params: SessionStatusParams; result: SessionStatusResult }
   /** Inject text into the next tool result without interrupting the turn. */
   'session.steer': { params: SessionCorrectionParams; result: SessionCorrectionResult }
+  /** Owner-validated durable reply admission. Busy refuses before persistence; exact retries replay the accepted row without rerunning inference. */
+  'session.submit_attributed': { params: AttributedSubmitParams; result: AttributedSubmitResult }
+  /** Atomically create one durable independent task session from a verified message reference. */
+  'session.task_create': { params: TaskCreateParams; result: TaskCreateResult }
   /** Read or set a live session's title; a title set before the row exists is queued. */
   'session.title': { params: SessionTitleParams; result: SessionTitleResult }
   /** Drop the last user turn (and everything after it) from an idle session. */
@@ -7074,12 +7178,15 @@ export const RPC_METHODS = [
   'session.interrupt',
   'session.list',
   'session.most_recent',
+  'session.ongoing_open',
   'session.redirect',
   'session.resume',
   'session.save',
   'session.set_hidden',
   'session.status',
   'session.steer',
+  'session.submit_attributed',
+  'session.task_create',
   'session.title',
   'session.undo',
   'session.usage',

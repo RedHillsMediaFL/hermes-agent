@@ -51,6 +51,7 @@ def _compute_host_turn_frame(
     rid: str, sid: str, session: dict, text: Any, image_paths: list[str] | None = None,
     queued_prompt_generation: int | None = None, display_kind: str | None = None,
     display_metadata: dict | None = None) -> dict:
+    from tui_gateway.client_attribution import attributed_user_row
     with session["history_lock"]:
         history = list(session.get("history", []))
         history_version = int(session.get("history_version", 0))
@@ -67,6 +68,9 @@ def _compute_host_turn_frame(
         "context_cwd_is_launch_artifact": _context_cwd_is_launch_artifact(session),
         "profile_home": session.get("profile_home") or "",
         "model_override": session.get("model_override"),
+        # A native attributed turn was committed with its operation receipt by the parent. Adopt
+        # that exact row in the isolated worker instead of appending a second user message.
+        **({'submit_user_row': dict(attributed_user_row(session))} if attributed_user_row(session) else {}),
         # A model switch queued while the session was busy (config.set model ->
         # pending_model_switch) must cross the process boundary — the live agent is in
         # the compute host, and the server-side _apply_pending_model_switch would

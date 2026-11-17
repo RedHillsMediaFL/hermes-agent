@@ -623,11 +623,12 @@ def _reopen_if_finalized(db, session_id: str) -> None:
         db.reopen_session(session_id)
 
 
-def _persist_session_row_for_submit(rid, session, text=None, display_kind=None):
+def _persist_session_row_for_submit(rid, session, text=None, display_kind=None, companion=None):
     """Lazily persist the DB row now that the user sent a message (a branch becomes real
     here), then the message itself (#111868: a freeze during the first build must leave a
     resumable transcript); the error reply is the only user-visible signal (desktop maps it to a toast)."""
     from hermes_state_user_copy import describe_storage_failure
+    from hermes_companion import CompanionError
     try:
         if _ensure_session_db_row(session) is False:
             failure = describe_storage_failure(_db_error)
@@ -643,8 +644,13 @@ def _persist_session_row_for_submit(rid, session, text=None, display_kind=None):
             with _session_db(session) as db:
                 if db is not None:
                     _reopen_if_finalized(db, str(session.get("session_key") or ""))
-            _persist_submit_user_row(session, text, display_kind)
+            if companion is None:
+                _persist_submit_user_row(session, text, display_kind)
+            else:
+                companion.persist(session, text)
             return None
+    except CompanionError as exc:
+        error = _err(rid, exc.status, exc.code, {'code': exc.code, 'accepted': False, 'retryable': False})
     except Exception as exc:
         failure = describe_storage_failure(exc)
         if failure.code == "disk_full":
@@ -720,6 +726,9 @@ SESSION_OWNER_UNCONFIRMED = "SESSION_OWNER_UNCONFIRMED"
 
 def _slot_refusal(rid, sid, session, text, params, refusal, internal_hosted_submit) -> dict:
     """The answer to a refused slot: a ledger refusal of a client submit goes to the owner's FIFO."""
+    if params.get('_companion_admission') is not None:
+        from tui_gateway.client_attribution import BUSY_MESSAGE
+        return _err(rid, 4091, BUSY_MESSAGE, {'code': 'session_busy', 'accepted': False, 'retryable': True})
     if getattr(refusal, "ledger_status", None) is not None and not internal_hosted_submit:
         return _submit_to_ledger_owner(rid, sid, session, text, params, refusal)
     reason = getattr(refusal, "reason", None)
@@ -789,6 +798,9 @@ def _lock_in_submit_turn(
     with _session_turn_admission(session) as admitted:
         if not admitted:
             return _err(rid, 5035, "backend is retiring; reconnect to continue"), fields
+        if params.get('_companion_admission') is not None and session.get('running'):
+            from tui_gateway.client_attribution import BUSY_MESSAGE
+            return _err(rid, 4091, BUSY_MESSAGE, {'code': 'session_busy', 'accepted': False, 'retryable': True}), fields
         # The ownership check above ran before this lock: the idle reaper (which releases under it) may have
         # freed the lease since, and another surface claimed and extended the transcript. Re-claim here,
         # before the cut and the turn's writes; a refusal (an ActiveSessionRefusal str) writes nothing.
@@ -838,23 +850,75 @@ def _claim_submit_turn(
 from gateway.session_surface import SURFACES as _CLIENT_SURFACES
 
 
-@method("prompt.submit")
-def _(rid, params: dict) -> dict:
+def _prepare_submit_input(rid, params):
     from hermes_cli.input_sanitize import sanitize_user_prompt_text
-    sid = params.get("session_id", "")
+    from tui_gateway.client_attribution import Admission
+    companion = params.get('_companion_admission')
+    if companion is not None and not isinstance(companion, Admission):
+        return None, None, None, None, _err(rid, 4000, 'attribution is admitted by the server')
     raw_text = params.get("text", "")
     text = sanitize_user_prompt_text(raw_text) if isinstance(raw_text, str) else raw_text
-    # Off-screen sends (widget intents) type the row so no client renders a bubble;
-    # whitelisted to "hidden" — this RPC must not mint kinds.
     display_kind = "hidden" if params.get("display_kind") == "hidden" else None
     title_preview = params.get("title_preview")
-    display_metadata = (
-        {"title_preview": title_preview[:1000]}
-        if isinstance(title_preview, str) and title_preview.strip()
-        else None
-    )
-    if (stopped := _typed_stop_phrase_response(rid, text, sid)) is not None:
-        return stopped
+    metadata = ({"title_preview": title_preview[:1000]}
+                if isinstance(title_preview, str) and title_preview.strip() else None)
+    stopped = _typed_stop_phrase_response(rid, text, params.get('session_id', '')) if companion is None else None
+    return text, display_kind, metadata, companion, stopped
+
+
+def _prepare_attributed_turn(rid, session, text, display_kind, companion, metadata, images):
+    if companion is None:
+        return None, metadata, images
+    if (error := _persist_session_row_for_submit(rid, session, text, display_kind, companion)) is not None:
+        return error, metadata, images
+    if companion.replayed:
+        with session['history_lock']:
+            session['running'] = False
+            _clear_inflight_turn(session)
+            _release_active_session_slot(session)
+        return _ok(rid, {'status': 'streaming'}), metadata, images
+    metadata = session['_submit_user_row']['display_metadata']
+    with session['history_lock']:
+        if isinstance(session.get('inflight_turn'), dict):
+            session['inflight_turn']['display_metadata'] = dict(metadata)
+    return None, metadata, companion.images
+
+
+def _busy_submit_response(
+    rid, sid, session, text, transport, params, has_truncation, internal_hosted_submit,
+    turn_author, display_kind, companion,
+):
+    from tui_gateway.client_attribution import BUSY_MESSAGE
+    while True:
+        with session["history_lock"]:
+            if not session.get("running"):
+                return None
+            if companion is not None:
+                return _err(rid, 4091, BUSY_MESSAGE, {'code': 'session_busy', 'accepted': False, 'retryable': True})
+            if internal_hosted_submit:
+                return _err(rid, 4091, "hosted room member session is busy")
+            busy_transport = transport or session.get("transport")
+        if has_truncation:
+            # A rewind/edit/restore/regenerate must land as a truncation, never as a
+            # steered correction or a plain follow-up queued to run after the live
+            # turn — either would silently drop the history cut the user asked for.
+            # Signal busy so the caller's own interrupt-then-retry loop (already
+            # built for exactly this race — see desktop's `runRewindSubmit`) waits
+            # for `running` to clear and resubmits with the truncation intact.
+            return _err(rid, 4009, "session busy")
+        busy_response = _handle_busy_submit(
+            rid, sid, session, text, busy_transport, queued=bool(params.get("queued")), turn_author=turn_author,
+            display_kind=display_kind)
+        if busy_response is not None:
+            return busy_response
+
+
+@method("prompt.submit")
+def _(rid, params: dict) -> dict:
+    sid = params.get("session_id", "")
+    text, display_kind, display_metadata, companion, early_response = _prepare_submit_input(rid, params)
+    if early_response is not None:
+        return early_response
     if params.get("interrupted"):
         # Client-side barge-in: latch so this turn's model message carries the note.
         from tools.tts_streaming import mark_speech_interrupted
@@ -912,26 +976,11 @@ def _(rid, params: dict) -> dict:
     # history_lock is released (a non-interruptible tool may hold it); if the old turn
     # finished between the two acquisitions, retry the claim rather than strand this
     # prompt in a queue whose drain already ran.
-    while True:
-        with session["history_lock"]:
-            if not session.get("running"):
-                break
-            if internal_hosted_submit:
-                return _err(rid, 4091, "hosted room member session is busy")
-            busy_transport = t or session.get("transport")
-        if has_truncation:
-            # A rewind/edit/restore/regenerate must land as a truncation, never as a
-            # steered correction or a plain follow-up queued to run after the live
-            # turn — either would silently drop the history cut the user asked for.
-            # Signal busy so the caller's own interrupt-then-retry loop (already
-            # built for exactly this race — see desktop's `runRewindSubmit`) waits
-            # for `running` to clear and resubmits with the truncation intact.
-            return _err(rid, 4009, "session busy")
-        busy_response = _handle_busy_submit(
-            rid, sid, session, text, busy_transport, queued=bool(params.get("queued")), turn_author=turn_author,
-            display_kind=display_kind)
-        if busy_response is not None:
-            return busy_response
+    busy_response = _busy_submit_response(
+        rid, sid, session, text, t, params, has_truncation, internal_hosted_submit,
+        turn_author, display_kind, companion)
+    if busy_response is not None:
+        return busy_response
     raw_rebind_ids = params.get("rebind_survivor_row_ids")
     requested_rebind_ids = (
         {r for r in raw_rebind_ids if isinstance(r, int) and not isinstance(r, bool)}
@@ -939,6 +988,10 @@ def _(rid, params: dict) -> dict:
     err, survivor_fields = _claim_submit_turn(
         rid, sid, session, text, params, has_truncation, requested_rebind_ids, hosted_task, display_kind,
         internal_hosted_submit)
+    if err is not None:
+        return err
+    err, display_metadata, hosted_images = _prepare_attributed_turn(
+        rid, session, text, display_kind, companion, display_metadata, hosted_images)
     if err is not None:
         return err
     if turn_isolation:
@@ -959,8 +1012,11 @@ def _(rid, params: dict) -> dict:
             logger.debug("finalized-session reopen before isolated dispatch failed for %s",
                          sid, exc_info=True)
         isolated_response = _submit_prompt_to_compute_host(
-            rid, sid, session, text, display_kind=display_kind, display_metadata=display_metadata)
+            rid, sid, session, text, display_kind=display_kind, display_metadata=display_metadata,
+            image_paths=hosted_images if companion is not None else None)
         if not isolated_response.get("error"):
+            if companion is not None:
+                session.pop('_submit_user_row', None)
             # The truncation already happened inline above (memory + DB).
             isolated_response["result"].update(survivor_fields)
             return isolated_response
@@ -975,7 +1031,7 @@ def _(rid, params: dict) -> dict:
         logger.warning(
             "compute-host dispatch failed for session %s; falling back inline: %s", sid,
             isolated_response["error"].get("message", "unknown error"))
-    if (err := _persist_session_row_for_submit(rid, session, text, display_kind)) is not None:
+    if companion is None and (err := _persist_session_row_for_submit(rid, session, text, display_kind)) is not None:
         return err
     # Capture before starting the worker: it consumes the staging dict and may finish before the RPC returns.
     staged_user = session.get("_submit_user_row") or {}
