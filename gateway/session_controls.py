@@ -100,7 +100,7 @@ _PROFILE_IMPLICIT = frozenset({'session.create', 'session.list', 'session.info',
                                'prompt.steer_queued', 'prompt.replace_queued',
                                'session.interrupt', 'session.events.since', 'session.mutate', 'session.stats',
                                'session.account_usage',
-                               'approval.respond', 'clarify.respond'})
+                               'approval.respond', 'clarify.respond', 'runtime.describe'})
 
 
 def display_projection(history, profile_home, image_urls=True):
@@ -243,6 +243,8 @@ class AuthorityConnection:
                     'prompt.resolve_unknown': self.resolve_unknown,
                     'session.interrupt': self.interrupt, 'session.events.since': self.events_since,
                     'approval.respond': self.respond, 'clarify.respond': self.respond_clarify}
+        from gateway.session_conversations.rpc import handlers as conversation_handlers
+        handlers.update(conversation_handlers(self))
         from gateway.session_busy_controls import handlers as busy_handlers
         handlers.update(busy_handlers(self))
         from gateway.session_queued_controls import handlers as queued_handlers
@@ -565,7 +567,7 @@ class AuthorityConnection:
                 'authority_epoch': self.authority.epoch,
                 'capabilities': ['durable-admission-v1', 'event-replay-v1', 'local-cli-create-v1', 'acp-editor-policy-v1',
                                  'acp-session-mcp-v1', 'clarify-batch-v1', 'plugin-rpc-v1', 'session-client-v1', 'session-transcript-v1', 'session-list-picker-v1',
-                                 'session-list-cursor-v1'],
+                                 'session-list-cursor-v1', 'session-conversations-v1'],
                 'session_create': {'sources': sorted(SURFACES),
                                    'parameters': sorted(CREATE_FIELDS | {'title'})},
                 # Main's ``gateway.ready.skin``: the canonical client's own ready carries it.
@@ -715,7 +717,7 @@ class AuthorityConnection:
             self._spawn_notice(ref)
             # Only local routes have a frozen local launch policy to project; with it, main's banner and
             # status-bar inventory (tools, skills, MCP, version, branch) for that policy.
-            info = {'desktop_protocol': CANONICAL_GATEWAY_PROTOCOL}
+            info = {'desktop_protocol': CANONICAL_GATEWAY_PROTOCOL, 'profile_id': self.authority.profile_id}
             live = self.authority.sessions[snapshot.handle.ref.session_id]
             if live.source is not None and live.source.platform == Platform.LOCAL:
                 from gateway.session_policy import policy_for_source, refresh_profile_hooks
@@ -867,7 +869,8 @@ class AuthorityConnection:
             raise RuntimeStoreError('permission_denied')
         forbidden = set(params) - {'session_id', 'text', 'submission_id', 'input_id', 'queued', 'attachments', 'finite', 'unattended',
                                    'surface', 'voice_context', 'interrupted', 'voice_turn', 'display_kind', 'title_preview',
-                                   'turn_author', 'api_text', 'model_override', 'clarify_batch'}
+                                   'turn_author', 'api_text', 'model_override', 'clarify_batch',
+                                   'reply_to', 'conversation_session_id', 'conversation_attachments'}
         if forbidden:
             raise RuntimeStoreError('invalid_params')
         request_id = params.get('submission_id') or params.get('input_id')
@@ -879,6 +882,10 @@ class AuthorityConnection:
         from gateway.session_cli_turn import submit_cli_turn_fields
         payload = {'text': params.get('text'), **admit_finite(params, submitter=(self, ref)), **submit_surface_fields(params),
                    **submit_display_fields(params), **submit_cli_turn_fields(params)}
+        from gateway.session_conversations.turn import submit_fields
+        payload.update(submit_fields(params))
+        if 'conversation_attachments' in params:
+            payload['conversation_attachments'] = params['conversation_attachments']
         if 'attachments' in params:
             payload['attachments'] = params['attachments']
         return Submission(request_id, ref, payload, 'queue')

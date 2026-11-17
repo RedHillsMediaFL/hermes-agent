@@ -77,7 +77,8 @@ def _bootstrap(authority, ref, row, policy, scope, text=None):
         'finite': row['payload'].get('finite', False), 'unattended': row['payload'].get('unattended') is True,
         'yolo': _session_yolo(authority, live.route, policy),
         **({'surface_v1': row['payload']['surface_v1']} if row['payload'].get('surface_v1') else {}),
-        **({'display_v1': row['payload']['display_v1']} if row['payload'].get('display_v1') else {})})
+        **({'display_v1': row['payload']['display_v1']} if row['payload'].get('display_v1') else {}),
+        **({'conversation_v1': row['payload']['conversation_v1']} if row['payload'].get('conversation_v1') else {})})
     from gateway.session_worker_construct import construct_inputs
     request['construct_v1'] = construct_inputs(authority, policy, live.source.chat_id, live.source)
     # This owner consumes the worker's ACTIVITY_FRAME, often enough for its wedge timeout.
@@ -133,24 +134,27 @@ def worker_turn_scope(frame):
     from gateway.session_finite import finite_turn_scope
     from gateway.session_display import display_turn_scope, restore_display
     from gateway.session_surface import restore_surface, surface_turn_scope
+    from gateway.session_conversations.turn import restore as restore_conversation, conversation_turn_scope
     turn = json.loads(frame['policy'].get('request_json') or '{}').get('turn_v1')
     if turn is None:
         yield
         return
-    flags = {k: v for k, v in turn.items() if k not in ('surface_v1', 'display_v1')} if isinstance(turn, dict) else None
+    flags = {k: v for k, v in turn.items() if k not in ('surface_v1', 'display_v1', 'conversation_v1')} if isinstance(turn, dict) else None
     if (flags is None or set(flags) != {'finite', 'unattended', 'yolo'}
             or any(type(v) is not bool for v in flags.values()) or (turn['unattended'] and not turn['finite'])):
         raise ValueError('invalid_managed_worker_bootstrap')
     try:
         surface = restore_surface(turn['surface_v1']) if 'surface_v1' in turn else None
         display = restore_display(turn['display_v1']) if 'display_v1' in turn else None
+        conversation = restore_conversation(turn.get('conversation_v1'))
     except RuntimeStoreError as exc:
         raise ValueError('invalid_managed_worker_bootstrap') from exc
     if turn['yolo']:
         from tools.approval import enable_session_yolo
         enable_session_yolo(frame['route'])
     with finite_turn_scope(turn['finite'], turn['unattended']), surface_turn_scope(surface), \
-            display_turn_scope(frame['scope']['execution_id'], display):
+            display_turn_scope(frame['scope']['execution_id'], display), \
+            conversation_turn_scope(frame['scope']['execution_id'], conversation):
         yield
 
 

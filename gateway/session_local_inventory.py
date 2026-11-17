@@ -203,7 +203,7 @@ async def snapshot_info(authority, ref):
     from gateway.session_usage import snapshot_usage
     if (usage := await asyncio.to_thread(snapshot_usage, authority, ref, agent)) is not None:
         info['usage'] = usage
-    return {**inventory, **info}
+    return {**inventory, **info, 'profile_id': authority.profile_id}
 
 
 def agent_inventory(agent) -> dict:

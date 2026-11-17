@@ -1,13 +1,17 @@
-# Native client attribution v1
+# Native client protocols
 
-This compatibility branch extends Hermes v0.23.2's standalone, authenticated legacy dashboard
-transport. It adds durable reply attribution, independent tasks and an explicit per-profile
-ongoing conversation. It does not change model/provider defaults, install a second chat engine,
-enable telemetry, or claim compatibility with the canonical session-authority transport.
+This compatibility branch extends Hermes v0.23.2 with durable reply attribution, independent
+tasks and per-profile ongoing conversations. The [canonical conversation protocol](CANONICAL_CONVERSATIONS.md)
+uses Hermes's native session owner, durable input queue and generation-fenced controls.
+The standalone legacy dashboard transport uses the contract below. Both use Hermes's existing
+authentication and process, and preserve the operator's model and provider settings.
+
+## Standalone attribution v1
 
 Clients first read `GET /api/agent/v1/capabilities?profile=default`, verify the serving profile,
-then independently verify a fresh authenticated WebSocket `gateway.ready` frame. All new chat
-features are false on the canonical transport; a capability document is not a transport handshake.
+then independently verify a fresh authenticated WebSocket `gateway.ready` frame. This contract
+requires `legacy-dashboard-v1`; a canonical owner instead requires the canonical conversation
+contract and its `session-conversations-v1` handshake. A capability document alone is not a transport handshake.
 Reply/task clients that use compression-lineage aliases must also require
 `features.conversation_lineage: true`. Earlier compatibility builds can still serve ordinary chat
 without advertising this stronger attribution contract.

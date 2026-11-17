@@ -179,7 +179,7 @@ ADMISSION_QUEUE_MAX = 32
 
 def admit_session_input(db, *, epoch: int, principal_id: str, session_id: str,
                         request_id: str, payload: dict, intent: str = 'queue',
-                        _authorize_write=None, _replay_guard=None) -> dict:
+                        _authorize_write=None, _replay_guard=None, _prepare_payload=None) -> dict:
     """Admit input; the trusted private guard raises to refuse a NEW write.
 
     The guard receives the owning transaction connection, must not commit it or
@@ -218,11 +218,16 @@ def admit_session_input(db, *, epoch: int, principal_id: str, session_id: str,
             raise RuntimeStoreError('queue_full')
         if _authorize_write is not None:
             _authorize_write(conn)
+        # A native owner's server-resolved reference is frozen in the same commit as
+        # this FIFO row. Its request fingerprint remains the caller's exact input;
+        # an accepted replay never re-resolves a subsequently edited/deleted source.
+        saved = payload if _prepare_payload is None else _prepare_payload(conn, payload)
+        saved_encoded = encoded if _prepare_payload is None else _json(saved)
         admission_id = uuid.uuid4().hex
         conn.execute('''INSERT INTO session_admissions(admission_id,request_id,principal_id,
             target_session_id,lineage_json,payload_json,payload_digest,intent,status,owner_epoch)
             VALUES(?,?,?,?,?,?,?,?,'queued',?)''',
-            (admission_id, request_id, principal_id, session_id, json.dumps([session_id]), encoded, digest, intent, epoch))
+            (admission_id, request_id, principal_id, session_id, json.dumps([session_id]), saved_encoded, digest, intent, epoch))
         return _row(_admission(conn, admission_id))
     return db._execute_write(write)
 

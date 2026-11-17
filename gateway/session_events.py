@@ -24,6 +24,7 @@ class SessionEvents:
         self.sequence = 0
         self._public_id = None
         self.execution = {}
+        self.profile_id = None
         # Synchronous same-thread recipients (API run projections): unlike fanout peers they
         # cannot lose a frame to a detach that races the writer thread.
         self.observers = set()
@@ -78,7 +79,8 @@ class SessionEvents:
             self.watermark()
             frame = {'jsonrpc': '2.0', 'method': 'event', 'params': {
                 **(self.execution if execution is None else execution), 'type': event_type, 'session_id': self._key,
-                'payload': deepcopy(payload), 'replay_epoch': self.epoch}}
+                'payload': deepcopy(payload), 'replay_epoch': self.epoch,
+                **({'profile_id': self.profile_id} if self.profile_id is not None else {})}}
             event_replay._stamp_event(frame)
             if frame['params']['seq'] <= self.sequence:
                 # Another publisher may evict us after watermark's lookup.
@@ -97,7 +99,8 @@ class SessionEvents:
                     self.on_overflow(transport)
                 return {'jsonrpc': '2.0', 'method': 'event', 'params': {
                     'type': 'session.replay_gap', 'session_id': session_id,
-                    'payload': {'replay_epoch': self.epoch, 'latest_seq': self.sequence}}}
+                    'payload': {'replay_epoch': self.epoch, 'latest_seq': self.sequence},
+                    **({'profile_id': self.profile_id} if self.profile_id is not None else {})}}
             delivered = self.fanout.write(frame, overflow=overflow)
             for observer in tuple(self.observers):
                 try:
@@ -131,7 +134,9 @@ class SessionEvents:
                        or event_replay.is_truncated(self._key, sequence)
                        or event_replay.latest_seq(self._key) != latest)
             events = [] if missing else [
-                {**frame, 'session_id': self._public_id} if frame.get('session_id') == self._key else frame
+                {**frame, 'session_id': self._public_id,
+                 **({'profile_id': self.profile_id} if self.profile_id is not None else {})}
+                if frame.get('session_id') == self._key else frame
                 for frame in frames]
             return {'events': events, 'latest_seq': latest, 'last_sequence': latest,
                     'epoch': current_epoch, 'replay_epoch': current_epoch,

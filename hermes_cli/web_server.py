@@ -780,6 +780,7 @@ def _get_dashboard_plugins(force_rescan: bool = False) -> list:
 # Router mounting. ORDER IS ROUTE-MATCHING ORDER: literal paths must land before
 # templated siblings (e.g. /api/sessions/bulk-delete before /api/sessions/{id}).
 from hermes_cli.web_routers import (
+    agent_conversations as _agent_conversations_routes,
     files as _files_routes,
     git as _git_routes,
     local_models as _local_models_routes,
@@ -822,8 +823,6 @@ from fastapi import Depends as _Depends
 from hermes_cli.web_server_surface import route_on as _route_on
 
 app.include_router(_files_routes.router)
-from hermes_cli.web_routers.agent_companion import router as _agent_companion_router
-app.include_router(_agent_companion_router)
 # The Webapp's routes exist only on the surfaces whose policy names them (404 elsewhere).
 app.include_router(_upload_routes.router, dependencies=[_Depends(_route_on("browser_files"))])
 app.include_router(_desktop_plugin_routes.router, dependencies=[_Depends(_route_on("desktop_plugins"))])
@@ -845,6 +844,7 @@ app.include_router(_messaging_routes.router)
 app.include_router(_messaging_relay_routes.router)
 app.include_router(_oauth_routes.router)
 app.include_router(_sessions_routes.manage_router)
+app.include_router(_agent_conversations_routes.router)
 app.include_router(_status_routes.logs_router)
 app.include_router(_cron_routes.router)
 app.include_router(_mcp_routes.router)

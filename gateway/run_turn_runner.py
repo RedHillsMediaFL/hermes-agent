@@ -1041,6 +1041,11 @@ class TurnRunner(GatewayTurnProgressMixin, GatewaySessionAgentMixin):
         # user turn. Restricted to resume_pending sessions so caption-less image turns are untouched.
         if isinstance(ctx.message, str) and not ctx.message.strip() and resume_pending:
             ctx.message = build_resume_recovery_note(resume_reason, "", interactive=self._resume_note_interactive())
+        from gateway.session_conversations.turn import model_note
+        if note := model_note(ctx.inbound_message_id):
+            if persist_override is None:
+                persist_override = ctx.message
+            ctx.message = note + '\n\n' + ctx.message
         return persist_override, ctx.persist_user_timestamp
 
     def _native_image_run_message(self):

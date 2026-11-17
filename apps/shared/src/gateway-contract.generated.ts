@@ -3522,6 +3522,7 @@ export interface SessionActiveListResult {
 /** ``server._session_live_item``. */
 export interface SessionActiveItem {
   current: boolean
+  profile_id?: string | null
   id: string
   last_active: number
   message_count: number
@@ -5509,6 +5510,7 @@ export interface CanonicalReplayEvent {
   authority_epoch?: number | null
   execution_generation?: number | null
   admission_id?: string | null
+  profile_id?: string | null
 }
 export interface CanonicalSubmitParams {
   profile?: string | null
@@ -5530,6 +5532,9 @@ export interface CanonicalSubmitParams {
   api_text?: string | null
   model_override?: CanonicalModelOverride | null
   clarify_batch?: boolean
+  reply_to?: ConversationSourceRef | null
+  conversation_session_id?: string | null
+  conversation_attachments?: ConversationAttachment[] | null
 }
 export interface CanonicalAttachment {
   path: string
@@ -5545,6 +5550,18 @@ export interface CanonicalModelOverride {
   model: string
   provider?: string | null
   reasoning?: string | null
+}
+export interface ConversationSourceRef {
+  session_id: string
+  row_id: number
+  message_uid: string
+}
+export interface ConversationAttachment {
+  path: string
+  kind: 'image' | 'file' | 'pdf'
+  name: string
+  mime_type: string
+  size: number
 }
 /** ``prompt.submit``: the admission receipt, or ``{voice_stopped: true}``. */
 export type CanonicalSubmitResult = AdmissionStatus | CanonicalVoiceStopped
@@ -5734,6 +5751,51 @@ export interface StoredTranscriptRow {
   truncated?: boolean | null
   [key: string]: unknown
 }
+export interface ConversationTaskParams {
+  profile?: string | null
+  operation_id: string
+  origin: ConversationSourceRef
+  title: string
+  source?: 'ios' | 'desktop'
+}
+export interface ConversationTaskResult {
+  thread: ConversationTask
+  session: CanonicalSnapshot
+  resolved_session_id: string
+  replayed: boolean
+}
+export interface ConversationTask {
+  thread_id: string
+  profile: string
+  title: string
+  parent_session_id: string
+  origin: ConversationSourceAnchor
+  created_at: number
+}
+export interface ConversationSourceAnchor {
+  profile: string
+  session_id: string
+  row_id: number
+  message_uid: string
+  role: 'user' | 'assistant'
+  snapshot: ConversationSourceSnapshot
+}
+export interface ConversationSourceSnapshot {
+  text: string
+  timestamp: number
+  truncated: boolean
+}
+export interface ConversationOngoingParams {
+  profile?: string | null
+  source?: 'ios' | 'desktop'
+}
+export interface ConversationOngoingResult {
+  profile: string
+  stored_session_id: string
+  resolved_session_id: string
+  session: CanonicalSnapshot
+  created: boolean
+}
 /** Open: the plugin's handler owns every other key. ``session_id`` names the session the call acts in and passes that session's authorization first. */
 export interface PluginRpcParams {
   session_id?: string | null
@@ -5742,6 +5804,7 @@ export interface PluginRpcParams {
 /** ``answers`` rides only on a reconnect replay (locks the server already accepted; null = skipped). */
 export interface ClarifyRequestParams {
   session_id: string
+  profile_id?: string | null
   questions: ClarifyQuestion[]
   answers?: Record<string, string | null> | null
 }
@@ -5759,6 +5822,7 @@ export interface ClarifyResult {
 /** ``card`` is the beat's data (``agent/onboarding_flow.py::BEATS``): name, theme, connectors and plugins have their own shape; layout, tour and build carry ``options``. ``tool_call_id`` is the setup_beat call the card belongs to: only that transcript row draws it. */
 export interface SetupBeatRequestParams {
   session_id: string
+  profile_id?: string | null
   beat: SetupBeat
   question?: string | null
   tool_call_id?: string | null
@@ -5819,6 +5883,7 @@ export interface SetupBuildAnswer {
 /** ``tui_gateway/server.py::_approval_request_payload`` — the command is redacted server-side. */
 export interface ApprovalRequestParams {
   session_id: string
+  profile_id?: string | null
   request_id: string
   command?: string
   description?: string
@@ -5837,6 +5902,7 @@ export interface ApprovalResult {
 /** Original command, redacted server-side before any password-injection rewrite. */
 export interface SudoRequestParams {
   session_id: string
+  profile_id?: string | null
   command?: string
 }
 /** The answer to any one-string prompt (sudo, secret, vault prompts, desktop bridges): ``''`` means skipped / declined. */
@@ -5845,36 +5911,43 @@ export interface ValueResult {
 }
 export interface SecretRequestParams {
   session_id: string
+  profile_id?: string | null
   env_var: string
   prompt: string
   metadata?: Record<string, unknown> | null
 }
 export interface VaultUnlockRequestParams {
   session_id: string
+  profile_id?: string | null
   backend: string
   display_name: string
 }
 export interface VaultSaveLoginRequestParams {
   session_id: string
+  profile_id?: string | null
   origin: string
   site: string
 }
 export interface VaultCodeRequestParams {
   session_id: string
+  profile_id?: string | null
   site?: string | null
   hint?: string | null
 }
 export interface ReadRangeRequestParams {
   session_id: string
+  profile_id?: string | null
   start?: number | null
   count?: number | null
 }
 export interface EmptyRequestParams {
   session_id: string
+  profile_id?: string | null
 }
 /** ``tools/drive_preview_tool.py`` and ``tools/annotate_preview_tool.py`` field sets. */
 export interface PreviewActRequestParams {
   session_id: string
+  profile_id?: string | null
   action: string
   ref?: string | null
   selector?: string | null
@@ -5897,6 +5970,7 @@ export interface PreviewVaultOperation {
 /** ``tools/tour_tool.py`` field set. */
 export interface TourRequestParams {
   session_id: string
+  profile_id?: string | null
   action: string
   surface?: string | null
   selector?: string | null
@@ -5919,6 +5993,7 @@ export type TourPreset = 'quick' | 'full'
 /** ``tools/set_theme_tool.py`` values; accent is a swatch id, ``theme`` or ``#rrggbb``. */
 export interface ThemeApplyRequestParams {
   session_id: string
+  profile_id?: string | null
   accent?: string | null
   mode?: ThemeMode | null
   layout?: string | null
@@ -5926,6 +6001,7 @@ export interface ThemeApplyRequestParams {
 export type ThemeMode = 'light' | 'dark' | 'system'
 export interface ThemePickRequestParams {
   session_id: string
+  profile_id?: string | null
   picker: ThemePicker
 }
 export type ThemePicker = 'accent' | 'layout'
@@ -5943,6 +6019,7 @@ export interface ThemeValues {
 }
 export interface DisplayInstallSudoParams {
   session_id: string
+  profile_id?: string | null
   profile_key: string
 }
 /** ``methods_connectors._connection_update``: one target transition (``target``/``from``/``to``/ ``actor``) or the settlement (none of those), with the full snapshot. */
@@ -7325,6 +7402,8 @@ export interface CanonicalRpcMethods {
   'session.list': { params: CanonicalListParams; result: CanonicalListResult }
   /** Revision-fenced, retry-idempotent session edit (rename, archive, sidebar, branch, delete, rewind, reset, model, reasoning, workspace, edit_policy, compress, import). */
   'session.mutate': { params: SessionMutateParams; result: SessionMutateResult }
+  /** Open the durable per-profile ongoing conversation through its native owner. */
+  'session.ongoing_open': { params: ConversationOngoingParams; result: ConversationOngoingResult }
   /** Local operator only: the owner deletes the ended sessions `hermes sessions prune` selected, skipping busy sessions and retained reset owners. */
   'session.prune': { params: SessionPruneParams; result: SessionPruneResult }
   'session.redirect': { params: CanonicalCorrectionParams; result: CanonicalCorrectionResult }
@@ -7332,6 +7411,8 @@ export interface CanonicalRpcMethods {
   /** The session.usage dict on demand: what main's classic CLI read off its agent. */
   'session.stats': { params: SessionStatsParams; result: SessionStats }
   'session.steer': { params: CanonicalCorrectionParams; result: CanonicalCorrectionResult }
+  /** Create an independent native session from an exact stored source message; durable retry identity. */
+  'session.task_create': { params: ConversationTaskParams; result: ConversationTaskResult }
   /** One page of a stored conversation's display rows across its compression lineage (live rows and rows a compaction archived, each logical message once, and each compaction handoff as a `row_kind: 'compaction'` row at its position), from the oldest or the newest. Never attaches the caller. A page holds at most `limit` (1-500) rows, compaction rows included, plus up to 64 tool results of the call at its edge, and at most 2 MiB of JSON, cut between tool groups (a single larger row keeps only its role, kind, time, ids and the head of its text, and carries `truncated`). Oldest order: read on until a page is empty, then poll with the same `next_cursor` for the rows written since; `reset: true` means the rows the cursor covered changed shape, so the reply starts again from the first page. Latest order: read on until `next_cursor` is null; its cursor stays valid across later compactions and turns. A rotated lineage past `sessions.max_resume_messages` pages only its current segment (a cursor from before it crossed, or a latest-order cursor from before a compaction rotated that segment, answers `reset: true`). With `subagent_id`: a delegated child of the session (running: through the parent's roster; finished: through its stored row, when its ancestry reaches this conversation); a foreign or unknown child is `available: false`. Refusals: invalid_params (a cursor issued for another session, child or order, or not by this read), not_found, permission_denied, profile_mismatch. */
   'session.transcript': { params: StoredTranscriptParams; result: StoredTranscriptResult }
   /** Ink ``!cmd`` / ``{!cmd}`` on the shared owner: one safe command for a local session, in its frozen launch cwd (``gateway/session_shell.py``). */
@@ -7389,11 +7470,13 @@ export const CANONICAL_RPC_METHODS = [
   'session.interrupt',
   'session.list',
   'session.mutate',
+  'session.ongoing_open',
   'session.prune',
   'session.redirect',
   'session.resume',
   'session.stats',
   'session.steer',
+  'session.task_create',
   'session.transcript',
   'shell.exec',
   'worker.adopt',

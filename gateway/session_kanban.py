@@ -269,9 +269,16 @@ def _run_worker_turns(agent, frame, history):
     context = json.loads(frame['policy'].get('kanban_json') or 'null')
     if context is None:
         from gateway.session_display import worker_display_kwargs
+        from gateway.session_conversations.turn import worker_input
         author = frame.get('turn_author')
+        text, conversation_kwargs = worker_input(frame['text'], visible=frame.get('_native_visible_input'))
+        display_kwargs = worker_display_kwargs()
+        if 'persist_user_display_metadata' in conversation_kwargs:
+            display_kwargs['persist_user_display_metadata'] = {
+                **display_kwargs.get('persist_user_display_metadata', {}),
+                **conversation_kwargs.pop('persist_user_display_metadata')}
         with _worker_workspace(frame) as task_id:
-            return agent.run_conversation(frame['text'], conversation_history=history, **worker_display_kwargs(),
+            return agent.run_conversation(text, conversation_history=history, **display_kwargs, **conversation_kwargs,
                                           **({'task_id': task_id} if task_id else {}),
                                           **({'turn_author': author} if author is not None else {}))
     from hermes_cli.turn_exit import credential_failure_flags, turn_exit_code

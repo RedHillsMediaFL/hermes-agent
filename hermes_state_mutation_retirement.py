@@ -159,6 +159,8 @@ def retire_sessions(conn, session_ids, *, expiring=()):
     retire_terminal_receipts(conn, session_ids)
     retire_mutation_receipts(conn, session_ids)
     retire_routes(conn, session_ids, expiring=expiring)
+    from gateway.session_conversations.store import retire as retire_conversations
+    retire_conversations(conn, session_ids)
     from hermes_state_local import retire_local_receipts
     retire_local_receipts(conn, session_ids)
 

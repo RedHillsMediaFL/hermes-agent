@@ -11,7 +11,7 @@ API_BINDING_PREFIX = 'gateway.api.binding.v1.'
 API_DECLARED_PREFIX = 'gateway.api.conversation.v1.'
 
 
-def commit_local_session(db, *, epoch, receipt):
+def commit_local_session(db, *, epoch, receipt, _on_create=None):
     """Reserve the row, route and immutable policy together, before publication. A staged receipt's
     ``on_create`` (owner memory, never stored) is published by the transaction that creates the row
     and withdrawn if that transaction fails: an exact retry, a refused or a losing attempt adds none."""
@@ -75,6 +75,8 @@ def commit_local_session(db, *, epoch, receipt):
         conn.execute("INSERT INTO gateway_routing(scope,session_key,entry_json,updated_at) VALUES('',?,?,?)",
                      (route, _json(entry), started))
         conn.execute('INSERT INTO state_meta(key,value) VALUES(?,?)', (key, encoded))
+        if _on_create is not None:
+            _on_create(conn, receipt)
         if on_create is not None:
             on_create.publish()  # before the row is visible, so no reader lazy-loads around it
         return receipt

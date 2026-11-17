@@ -21,6 +21,7 @@ class ServerRequestParams(Params):
     """Every request frame's params start with the session the question belongs to."""
 
     session_id: str
+    profile_id: str | None = None
 
 
 class ValueResult(Result):

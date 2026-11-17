@@ -13,6 +13,7 @@ from .sessions import OpenRequestEntry, TodoState
 from .canonical import (AdmissionStatus, CanonicalClientLabel, CanonicalSessionRef, PromptResponseResult,
                         SessionInventoryFields)
 from .registry import canonical_method
+from .conversation_values import ConversationAttachment, ConversationSourceRef
 
 
 class CanonicalSessionParams(ProfileParams):
@@ -272,6 +273,11 @@ class CanonicalSubmitParams(CanonicalSessionParams):
     # The submitter answers the clarify tool's whole batch in one ``clarify`` server request (main's
     # batch panel); without it the turn's viewers get one ``clarify.request`` card per question.
     clarify_batch: bool = False
+    # The owner freezes the exact source in this admission's transaction and
+    # carries it through FIFO/restart; this is not client-authored excerpt text.
+    reply_to: ConversationSourceRef | None = None
+    conversation_session_id: str | None = None
+    conversation_attachments: list[ConversationAttachment] | None = None
 
 
 class CanonicalVoiceStopped(Result):
@@ -347,6 +353,7 @@ class CanonicalReplayEvent(Result):
     authority_epoch: int | None = None
     execution_generation: int | None = None
     admission_id: str | None = None
+    profile_id: str | None = None
 
 
 class CanonicalEventsResult(Result):

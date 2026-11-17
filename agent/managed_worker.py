@@ -470,13 +470,9 @@ def execute(frame, channel):
             history = store.get_messages_as_conversation(scope['session_id'])
             from gateway.session_kanban import run_worker_turns
             if 'attachments_v1' in frame:
-                from gateway.session_ingress_media import restore_attachments
-                from agent.image_routing import build_native_content_parts
-                media = restore_attachments(frame)
-                content, skipped = build_native_content_parts(frame['text'], media['media_urls'])
-                if skipped:
-                    raise ValueError('managed_attachment_unavailable')
-                frame = {**frame, 'text': content}
+                from gateway.session_conversations.media import managed_input
+                content, visible = managed_input(frame['text'], frame)
+                frame = {**frame, 'text': content, '_native_visible_input': visible}
             before = (getattr(agent, 'session_prompt_tokens', 0) or 0,
                       getattr(agent, 'session_completion_tokens', 0) or 0)
             # Most failed results name no provider or model; the owner's error card needs the agent's.

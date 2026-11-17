@@ -41,6 +41,7 @@ async def active_list(connection, ref, params):
             continue
         sid, started = entry.session_id, float(row.get('started_at') or 0)
         rows.append({'current': sid == current, 'id': sid, 'session_key': sid,
+                     'profile_id': connection.authority.profile_id,
                      'last_active': float(row.get('ended_at') or started), 'started_at': started,
                      'message_count': int(row.get('message_count') or 0),
                      'model': str(row.get('model') or ''), 'preview': '', 'title': row.get('title') or '',

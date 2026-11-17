@@ -362,6 +362,7 @@ class SessionActiveItem(Result):
     """``server._session_live_item``."""
 
     current: bool
+    profile_id: str | None = None
     id: str
     last_active: float
     message_count: int

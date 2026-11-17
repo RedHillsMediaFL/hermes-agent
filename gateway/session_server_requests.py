@@ -172,7 +172,8 @@ def _ask(events, session_id, method, params, *, cancelled, timeout, qids=None, r
     if not events.fanout.transports():
         return None
     request_id = f"srq-{uuid.uuid4().hex[:12]}"
-    pending = _Pending(session_id, qids, events, method, {"session_id": session_id, **params}, replay)
+    pending = _Pending(session_id, qids, events, method, {"session_id": session_id, **params,
+        **({'profile_id': events.profile_id} if getattr(events, 'profile_id', None) is not None else {})}, replay)
     with _lock:
         _open[request_id] = pending
     events.fanout.write({"jsonrpc": "2.0", "id": request_id, "method": method, "params": pending.params})

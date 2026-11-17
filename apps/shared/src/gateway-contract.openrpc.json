@@ -5519,6 +5519,18 @@
             "title": "Session Id",
             "type": "string"
           },
+          "profile_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Profile Id"
+          },
           "request_id": {
             "title": "Request Id",
             "type": "string"
@@ -10105,6 +10117,18 @@
             ],
             "default": null,
             "title": "Admission Id"
+          },
+          "profile_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Profile Id"
           }
         },
         "required": [
@@ -12013,6 +12037,44 @@
             "default": false,
             "title": "Clarify Batch",
             "type": "boolean"
+          },
+          "reply_to": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConversationSourceRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "conversation_session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Conversation Session Id"
+          },
+          "conversation_attachments": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ConversationAttachment"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Conversation Attachments"
           }
         },
         "required": [
@@ -12376,6 +12438,18 @@
           "session_id": {
             "title": "Session Id",
             "type": "string"
+          },
+          "profile_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Profile Id"
           },
           "questions": {
             "items": {
@@ -16246,6 +16320,315 @@
         "title": "ContextFileSource",
         "type": "object"
       },
+      "ConversationAttachment": {
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "image",
+              "file",
+              "pdf"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "mime_type": {
+            "title": "Mime Type",
+            "type": "string"
+          },
+          "size": {
+            "exclusiveMinimum": 0,
+            "maximum": 26214400,
+            "title": "Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "path",
+          "kind",
+          "name",
+          "mime_type",
+          "size"
+        ],
+        "title": "ConversationAttachment",
+        "type": "object"
+      },
+      "ConversationOngoingParams": {
+        "additionalProperties": false,
+        "properties": {
+          "profile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Profile"
+          },
+          "source": {
+            "default": "ios",
+            "enum": [
+              "ios",
+              "desktop"
+            ],
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "title": "ConversationOngoingParams",
+        "type": "object"
+      },
+      "ConversationOngoingResult": {
+        "additionalProperties": false,
+        "properties": {
+          "profile": {
+            "title": "Profile",
+            "type": "string"
+          },
+          "stored_session_id": {
+            "title": "Stored Session Id",
+            "type": "string"
+          },
+          "resolved_session_id": {
+            "title": "Resolved Session Id",
+            "type": "string"
+          },
+          "session": {
+            "$ref": "#/components/schemas/CanonicalSnapshot"
+          },
+          "created": {
+            "title": "Created",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "profile",
+          "stored_session_id",
+          "resolved_session_id",
+          "session",
+          "created"
+        ],
+        "title": "ConversationOngoingResult",
+        "type": "object"
+      },
+      "ConversationSourceAnchor": {
+        "additionalProperties": false,
+        "properties": {
+          "profile": {
+            "title": "Profile",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "row_id": {
+            "title": "Row Id",
+            "type": "integer"
+          },
+          "message_uid": {
+            "title": "Message Uid",
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "user",
+              "assistant"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/ConversationSourceSnapshot"
+          }
+        },
+        "required": [
+          "profile",
+          "session_id",
+          "row_id",
+          "message_uid",
+          "role",
+          "snapshot"
+        ],
+        "title": "ConversationSourceAnchor",
+        "type": "object"
+      },
+      "ConversationSourceRef": {
+        "additionalProperties": false,
+        "properties": {
+          "session_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Session Id",
+            "type": "string"
+          },
+          "row_id": {
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "title": "Row Id",
+            "type": "integer"
+          },
+          "message_uid": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Message Uid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "row_id",
+          "message_uid"
+        ],
+        "title": "ConversationSourceRef",
+        "type": "object"
+      },
+      "ConversationSourceSnapshot": {
+        "additionalProperties": false,
+        "properties": {
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "timestamp": {
+            "title": "Timestamp",
+            "type": "number"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "text",
+          "timestamp",
+          "truncated"
+        ],
+        "title": "ConversationSourceSnapshot",
+        "type": "object"
+      },
+      "ConversationTask": {
+        "additionalProperties": false,
+        "properties": {
+          "thread_id": {
+            "title": "Thread Id",
+            "type": "string"
+          },
+          "profile": {
+            "title": "Profile",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "parent_session_id": {
+            "title": "Parent Session Id",
+            "type": "string"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/ConversationSourceAnchor"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "number"
+          }
+        },
+        "required": [
+          "thread_id",
+          "profile",
+          "title",
+          "parent_session_id",
+          "origin",
+          "created_at"
+        ],
+        "title": "ConversationTask",
+        "type": "object"
+      },
+      "ConversationTaskParams": {
+        "additionalProperties": false,
+        "properties": {
+          "profile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Profile"
+          },
+          "operation_id": {
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/ConversationSourceRef"
+          },
+          "title": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "source": {
+            "default": "ios",
+            "enum": [
+              "ios",
+              "desktop"
+            ],
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation_id",
+          "origin",
+          "title"
+        ],
+        "title": "ConversationTaskParams",
+        "type": "object"
+      },
+      "ConversationTaskResult": {
+        "additionalProperties": false,
+        "properties": {
+          "thread": {
+            "$ref": "#/components/schemas/ConversationTask"
+          },
+          "session": {
+            "$ref": "#/components/schemas/CanonicalSnapshot"
+          },
+          "resolved_session_id": {
+            "title": "Resolved Session Id",
+            "type": "string"
+          },
+          "replayed": {
+            "title": "Replayed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "thread",
+          "session",
+          "resolved_session_id",
+          "replayed"
+        ],
+        "title": "ConversationTaskResult",
+        "type": "object"
+      },
       "CorrectionStatus": {
         "enum": [
           "queued",
@@ -17628,6 +18011,18 @@
             "title": "Session Id",
             "type": "string"
           },
+          "profile_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Profile Id"
+          },
           "profile_key": {
             "title": "Profile Key",
             "type": "string"
@@ -18817,6 +19212,18 @@
           "session_id": {
             "title": "Session Id",
             "type": "string"
+          },
+          "profile_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Profile Id"
           }
         },
         "required": [
@@ -30357,6 +30764,18 @@
             "title": "Session Id",
             "type": "string"
           },
+          "profile_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Profile Id"
+          },
           "action": {
             "title": "Action",
             "type": "string"
@@ -34939,6 +35358,18 @@
             "title": "Session Id",
             "type": "string"
           },
+          "profile_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Profile Id"
+          },
           "start": {
             "anyOf": [
               {
@@ -37167,6 +37598,18 @@
             "title": "Session Id",
             "type": "string"
           },
+          "profile_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Profile Id"
+          },
           "env_var": {
             "title": "Env Var",
             "type": "string"
@@ -37574,6 +38017,18 @@
           "current": {
             "title": "Current",
             "type": "boolean"
+          },
+          "profile_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Profile Id"
           },
           "id": {
             "title": "Id",
@@ -42229,6 +42684,18 @@
             "title": "Session Id",
             "type": "string"
           },
+          "profile_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Profile Id"
+          },
           "beat": {
             "$ref": "#/components/schemas/SetupBeat"
           },
@@ -46537,6 +47004,18 @@
             "title": "Session Id",
             "type": "string"
           },
+          "profile_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Profile Id"
+          },
           "command": {
             "default": "",
             "title": "Command",
@@ -46830,6 +47309,18 @@
             "title": "Session Id",
             "type": "string"
           },
+          "profile_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Profile Id"
+          },
           "accent": {
             "anyOf": [
               {
@@ -46887,6 +47378,18 @@
           "session_id": {
             "title": "Session Id",
             "type": "string"
+          },
+          "profile_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Profile Id"
           },
           "picker": {
             "$ref": "#/components/schemas/ThemePicker"
@@ -47786,6 +48289,18 @@
           "session_id": {
             "title": "Session Id",
             "type": "string"
+          },
+          "profile_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Profile Id"
           },
           "action": {
             "title": "Action",
@@ -48831,6 +49346,18 @@
             "title": "Session Id",
             "type": "string"
           },
+          "profile_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Profile Id"
+          },
           "site": {
             "anyOf": [
               {
@@ -49173,6 +49700,18 @@
             "title": "Session Id",
             "type": "string"
           },
+          "profile_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Profile Id"
+          },
           "origin": {
             "title": "Origin",
             "type": "string"
@@ -49355,6 +49894,18 @@
           "session_id": {
             "title": "Session Id",
             "type": "string"
+          },
+          "profile_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Profile Id"
           },
           "backend": {
             "title": "Backend",
@@ -51781,6 +52332,24 @@
       }
     },
     {
+      "name": "session.ongoing_open",
+      "summary": "Open the durable per-profile ongoing conversation through its native owner.",
+      "params": [
+        {
+          "name": "params",
+          "schema": {
+            "$ref": "#/components/schemas/ConversationOngoingParams"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "$ref": "#/components/schemas/ConversationOngoingResult"
+        }
+      }
+    },
+    {
       "name": "session.prune",
       "summary": "Local operator only: the owner deletes the ended sessions `hermes sessions prune` selected, skipping busy sessions and retained reset owners.",
       "params": [
@@ -51867,6 +52436,24 @@
         "name": "result",
         "schema": {
           "$ref": "#/components/schemas/CanonicalCorrectionResult"
+        }
+      }
+    },
+    {
+      "name": "session.task_create",
+      "summary": "Create an independent native session from an exact stored source message; durable retry identity.",
+      "params": [
+        {
+          "name": "params",
+          "schema": {
+            "$ref": "#/components/schemas/ConversationTaskParams"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "$ref": "#/components/schemas/ConversationTaskResult"
         }
       }
     },

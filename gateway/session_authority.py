@@ -243,6 +243,7 @@ class SessionAuthority:
             raise RuntimeStoreError('permission_denied')
         from gateway.session_retirement import touch_restored
         touch_restored(self, ref.session_id)  # a rename or a read brought a retired one back
+        self.sessions[ref.session_id].event_stream.profile_id = self.profile_id
 
     def _require_admission_open(self, *, queue_only=False):
         """``queue_only``: the caller only COMMITS a queued row (never claims or runs it). A restart's
@@ -727,7 +728,8 @@ class SessionAuthority:
         self._require_admission_open(queue_only=queue_only)
         if (request.intent != 'queue' or not {'text'} <= set(request.payload) <= {
                 'text', 'attachments', 'finite', 'unattended', 'surface', 'voice_context', 'interrupted',
-                'voice_turn', 'display_kind', 'title_preview', 'turn_author', 'api_text', 'model_override', 'clarify_batch'}
+                'voice_turn', 'display_kind', 'title_preview', 'turn_author', 'api_text', 'model_override', 'clarify_batch',
+                'conversation_v1', 'conversation_attachments'}
                 or not isinstance(request.payload['text'], str)):
             raise RuntimeStoreError('invalid_params')
         from gateway.session_ingress_media import admit_attachments
@@ -745,6 +747,14 @@ class SessionAuthority:
         payload = {'text': request.payload['text'], **finite, **admit_surface(request.payload),
                    **admit_display(request.payload), **admit_cli_turn(request.payload),
                    **admit_attachments(request.payload.get('attachments'), admitted=admitted)}
+        if request.payload.get('conversation_attachments'):
+            if request.payload.get('attachments'):
+                raise RuntimeStoreError('invalid_params')
+            from gateway.session_conversations.attachments import admit_conversation_attachments
+            payload.update(await asyncio.to_thread(admit_conversation_attachments,
+                request.payload['conversation_attachments'], admitted=admitted))
+        if 'conversation_v1' in request.payload:
+            payload['conversation_v1'] = request.payload['conversation_v1']
         if _kanban_card is not None:
             payload['kanban_card_v1'] = _kanban_card
         source = self.sessions[request.ref.session_id].source
@@ -759,10 +769,12 @@ class SessionAuthority:
                 'principal_id': actor.subject}
         def admit():
             try:
+                from gateway.session_conversations.turn import prepare_payload
                 return admit_session_input(self.db, epoch=self.epoch, principal_id=actor.subject,
                                            session_id=request.ref.session_id, request_id=request.request_id,
                                            payload=payload, intent=request.intent, _replay_guard=_replay_guard,
-                                           _authorize_write=self._admission_gate(_authorize_write, queue_only=queue_only))
+                                           _authorize_write=self._admission_gate(_authorize_write, queue_only=queue_only),
+                                           _prepare_payload=partial(prepare_payload, self, actor, request))
             except Exception:
                 self._release_refused_capture(request, payload)
                 raise
