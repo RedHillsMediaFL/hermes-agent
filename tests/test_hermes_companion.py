@@ -83,7 +83,7 @@ def test_concurrent_retry_commits_one_row(state):
 @pytest.mark.parametrize('mutation,expected', [
     ({'row_id': 9999}, 'source_message_not_found'),
     ({'message_uid': 'wrong'}, 'source_message_mismatch'),
-    ({'session_id': 'missing'}, 'source_session_not_found'),
+    ({'session_id': 'missing'}, 'reply_conversation_mismatch'),
 ])
 def test_untrusted_reference_never_writes(state, mutation, expected):
     db, owner, ref = state

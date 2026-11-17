@@ -131,4 +131,70 @@ def test_canonical_capability_receipt_never_advertises_legacy_support(native, mo
     monkeypatch.setattr(agent_companion, '_identity', lambda *args: (object(), 'owner', 'default'))
     receipt = client.get('/api/agent/v1/capabilities', headers=headers).json()
     assert not receipt['core_chat_compatible'] and not receipt['features']['message_replies']
+    assert not receipt['features']['conversation_lineage']
     assert receipt['core_chat_protocol'] == 'canonical-session-authority'
+
+
+def _rpc(ws, method, params):
+    rid = str(uuid.uuid4())
+    ws.send_json({'jsonrpc': '2.0', 'id': rid, 'method': method, 'params': params})
+    for _ in range(100):
+        frame = ws.receive_json()
+        if frame.get('id') == rid:
+            assert 'error' not in frame, frame
+            return frame['result']
+    pytest.fail('response missing within bounded event budget')
+
+
+def _rotate(db, parent, child):
+    db.publish_compression_child(parent_session_id=parent, child_session_id=child, source='ios',
+        messages=[{'role': 'assistant', 'content': 'Compression summary'}],
+        profile_name='default', require_compression_lease=False)
+
+
+def test_native_lineage_negotiation_alias_echoes_and_task_resume_after_compression(native):
+    client, headers, db, _ = native
+    capabilities = client.get('/api/agent/v1/capabilities?profile=default', headers=headers).json()
+    assert capabilities['features']['conversation_lineage'] is True
+    ticket = client.post('/api/auth/ws-ticket', headers=headers).json()['ticket']
+    with client.websocket_connect('wss://acceptance.example.test/api/ws', subprotocols=['hermes-gateway-v1', 'hermes-gateway-ticket.' + ticket]) as ws:
+        assert ws.receive_json()['params']['type'] == 'gateway.ready'
+        created = _rpc(ws, 'session.create', {'source': 'ios'})
+        sid, key = created['session_id'], created['stored_session_id']
+        session = server._sessions[sid]
+        assert server._ensure_session_db_row(session)
+        db.append_message(key, 'assistant', 'An earlier answer')
+        row = db.get_messages_as_conversation(key, include_row_ids=True)[0]
+        source = {'session_id': key, 'row_id': row['_row_id'], 'message_uid': row['message_uid']}
+        params = {'profile': 'default', 'session_id': sid, 'operation_id': str(uuid.uuid4()),
+                  'text': 'Reply', 'reply_to': source, 'conversation_session_id': key}
+        first = _rpc(ws, 'session.submit_attributed', params)
+        assert first['conversation_session_id'] == key
+        session.update(running=False)
+        session.pop('_submit_user_row', None)
+        _rotate(db, key, 'continuation')
+        session['session_key'] = 'continuation'
+        replay = _rpc(ws, 'session.submit_attributed', params)
+        assert replay['replayed'] and replay['conversation_session_id'] == key
+        assert replay['user_message'] == first['user_message']
+        second = _rpc(ws, 'session.submit_attributed', {**params, 'operation_id': str(uuid.uuid4())})
+        assert second['conversation_session_id'] == key and second['stored_session_id'] == 'continuation'
+        assert second['user_message']['session_id'] == 'continuation' and second['reply_to']['session_id'] == key
+        task_params = {'profile': 'default', 'operation_id': str(uuid.uuid4()), 'origin': source, 'title': 'Task'}
+        task = _rpc(ws, 'session.task_create', task_params)
+        task_id = task['thread']['thread_id']
+        _rotate(db, task_id, 'task-continuation')
+        task_replay = _rpc(ws, 'session.task_create', task_params)
+        assert task_replay['thread']['thread_id'] == task_id and task_replay['resolved_session_id'] == 'task-continuation'
+        assert task_replay['session']['session_key'] == 'task-continuation'
+    resolved = client.get('/api/agent/v1/messages/resolve', headers=headers,
+        params={'profile': 'default', 'session_id': 'continuation', 'row_id': source['row_id']}).json()
+    assert resolved['conversation_session_id'] == 'continuation' and resolved['message']['session_id'] == key
+    links = client.get(f'/api/agent/v1/sessions/{key}/links', headers=headers, params={'profile': 'default'}).json()
+    assert links['conversation_session_id'] == key
+    assert {link['session_id'] for link in links['links']} == {key, 'continuation'}
+    threads = client.get('/api/agent/v1/threads', headers=headers,
+        params={'profile': 'default', 'origin_session_id': 'continuation'}).json()
+    assert threads['conversation_session_id'] == 'continuation' and threads['threads'][0]['thread_id'] == task_id
+    detail = client.get('/api/agent/v1/threads/task-continuation', headers=headers, params={'profile': 'default'}).json()
+    assert detail['conversation_session_id'] == 'task-continuation' and detail['thread']['thread_id'] == task_id

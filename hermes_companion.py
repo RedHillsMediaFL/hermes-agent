@@ -100,19 +100,29 @@ def _owned(conn, session_id, owner, profile):
     return row
 
 
-def conversation_root(conn, session_id, owner, profile):
-    row = _owned(conn, session_id, owner, profile)
+def conversation_family(db, conn, session_id, owner, profile):
+    """The verified display lineage, with every hop authorized on the same connection."""
+    _owned(conn, session_id, owner, profile)
+    row = _owned(conn, db._compression_tip_on(conn, session_id), owner, profile)
+    chain = []
     seen = set()
-    while row['parent_session_id'] and row['id'] not in seen:
+    for _ in range(1000):
+        if row['id'] in seen:
+            raise CompanionError('invalid_conversation_lineage', 503)
         seen.add(row['id'])
-        config = _object(row['model_config'])
-        if config.get('_branched_from'):
+        chain.append(row['id'])
+        candidate = {**dict(row), 'model_config': _object(row['model_config'])}
+        if not row['parent_session_id'] or db._is_explicit_fork_child_row(candidate, include_reset=True):
             break
         parent = conn.execute('SELECT * FROM sessions WHERE id=?', (row['parent_session_id'],)).fetchone()
         if parent is None or parent['end_reason'] != 'compression':
             break
         row = _owned(conn, parent['id'], owner, profile)
-    return row['id']
+    else:
+        raise CompanionError('conversation_lineage_limit', 503)
+    if session_id not in chain:
+        raise CompanionError('conversation_lineage_limit', 503)
+    return list(reversed(chain))
 
 
 def _text(content):
@@ -143,7 +153,11 @@ def _message(db, conn, ref, owner, profile, require_uid=True):
 
 def resolve_message(db, owner, profile, session_id, row_id):
     with db._read_ctx() as conn:
-        return _message(db, conn, {'session_id': identifier(session_id), 'row_id': row_id}, owner, profile, False)
+        family = conversation_family(db, conn, identifier(session_id), owner, profile)
+        row = conn.execute('SELECT session_id FROM messages WHERE id=?', (row_id,)).fetchone()
+        if row is None or row['session_id'] not in family:
+            raise CompanionError('source_message_not_found', 404)
+        return _message(db, conn, {'session_id': row['session_id'], 'row_id': row_id}, owner, profile, False)
 
 
 def _replay(conn, owner, op, kind, payload_digest):
@@ -174,13 +188,16 @@ def _save(conn, owner, op, kind, payload_digest, target, receipt, row_id=None):
                  (owner, op, kind, payload_digest, target, row_id, json.dumps(receipt, separators=(',', ':')), time.time()))
 
 
-def submission_payload(db, owner, profile, target, op, text, reply_to, attachments):
+def submission_payload(db, owner, profile, target, op, text, reply_to, attachments, *, view_session_id=None):
     operation_id(op)
     if not isinstance(text, str) or not text.strip() or len(text.encode()) > MAX_TEXT:
         raise CompanionError('invalid_text', 400)
     ref = source_ref(reply_to)
     with db._read_ctx() as conn:
-        root = conversation_root(conn, target, owner, profile)
+        family = conversation_family(db, conn, target, owner, profile)
+        if view_session_id is not None and identifier(view_session_id) not in family:
+            raise CompanionError('reply_conversation_mismatch', 403)
+        root = family[0]
     return {'conversation_id': root, 'text': text, 'reply_to': ref, 'attachments': attachments}
 
 
@@ -189,7 +206,7 @@ def replay_submission(db, owner, op, payload):
         return _replay(conn, owner, op, 'reply', digest(payload))
 
 
-def admit_message(db, owner, profile, target, op, payload, model_text):
+def admit_message(db, owner, profile, target, op, payload, model_text, *, view_session_id=None):
     """The exact accepted user row, reply reference, and retry receipt commit together."""
     from agent.message_metadata import stamp_message_timestamp, stamp_message_uid
     from agent.context_compressor import _DB_PERSISTED_MARKER
@@ -203,6 +220,10 @@ def admit_message(db, owner, profile, target, op, payload, model_text):
         previous = _replay(conn, owner, op, 'reply', wanted)
         if previous is not None:
             return previous, True
+        family = conversation_family(db, conn, target, owner, profile)
+        if (payload['conversation_id'] != family[0] or payload['reply_to']['session_id'] not in family
+                or (view_session_id is not None and view_session_id not in family)):
+            raise CompanionError('reply_conversation_mismatch', 403)
         origin = _message(db, conn, payload['reply_to'], owner, profile)
         staged['display_metadata'] = {'agent_reply_to': origin, 'agent_operation_id': op,
                                       'agent_attachments': payload['attachments']}
@@ -291,37 +312,45 @@ def ongoing(db, owner, profile):
 
 def threads(db, owner, profile, *, parent=None, child=None, limit=100, after=None):
     with db._read_ctx() as conn:
-        if parent is not None:
-            _owned(conn, parent, owner, profile)
+        parents = conversation_family(db, conn, parent, owner, profile) if parent is not None else None
+        children = conversation_family(db, conn, child, owner, profile) if child is not None else None
         if not _has_table(conn, 'agent_task_threads'):
             return []
         query = 'SELECT t.*,s.title AS current_title FROM agent_task_threads t JOIN sessions s ON s.id=t.session_id WHERE t.owner=?'
         params = [owner]
-        if parent is not None:
-            query += ' AND t.parent_session_id=?'; params.append(parent)
-        if child is not None:
-            query += ' AND t.session_id=?'; params.append(child)
+        if parents is not None:
+            query += ' AND t.parent_session_id IN (' + ','.join('?' for _ in parents) + ')'; params.extend(parents)
+        if children is not None:
+            query += ' AND t.session_id IN (' + ','.join('?' for _ in children) + ')'; params.extend(children)
         if after is not None:
             query += ' AND t.session_id>?'; params.append(after)
         query += ' ORDER BY t.session_id LIMIT ?'; params.append(limit)
         rows = conn.execute(query, params).fetchall()
-        return [{'thread_id': row['session_id'], 'profile': profile, 'title': row['current_title'] or row['title'],
+        def project(row):
+            _owned(conn, row['session_id'], owner, profile)
+            tip = _owned(conn, db._compression_tip_on(conn, row['session_id']), owner, profile)
+            return {'thread_id': row['session_id'], 'profile': profile, 'title': tip['title'] or row['title'],
                  'parent_session_id': row['parent_session_id'], 'origin': _object(row['origin_json']),
-                 'created_at': row['created_at']} for row in rows]
+                 'created_at': row['created_at']}
+        return [project(row) for row in rows]
 
 
 def links(db, owner, profile, session_id, limit=100, after=0):
     with db._read_ctx() as conn:
-        _owned(conn, session_id, owner, profile)
-        rows = conn.execute('''SELECT id,message_uid,display_metadata FROM messages
-            WHERE session_id=? AND id>? AND json_valid(display_metadata)
+        family = conversation_family(db, conn, session_id, owner, profile)
+        rows = conn.execute('''SELECT * FROM messages
+            WHERE session_id IN (''' + ','.join('?' for _ in family) + ''') AND role='user' AND json_valid(display_metadata)
               AND json_type(display_metadata,'$.agent_reply_to')='object'
               AND json_type(display_metadata,'$.agent_operation_id')='text'
-            ORDER BY id LIMIT ?''', (session_id, after, limit)).fetchall()
+            ORDER BY id''', family).fetchall()
+        # Reuse the display projection's compaction/rewind semantics: copied protected-tail
+        # user rows must produce one link, and rewound input must not reappear as a reply.
+        rows = sorted(db._dedupe_display_generations(rows, drop_removed=True), key=lambda row: row['id'])
+        rows = [row for row in rows if row['id'] > after][:limit]
         result = []
         for row in rows:
             meta = _object(row['display_metadata'])
             if meta.get('agent_reply_to'):
-                result.append({'row_id': row['id'], 'message_uid': row['message_uid'],
+                result.append({'session_id': row['session_id'], 'row_id': row['id'], 'message_uid': row['message_uid'],
                                'operation_id': meta['agent_operation_id'], 'reply_to': meta['agent_reply_to']})
         return result, rows[-1]['id'] if len(rows) == limit else None

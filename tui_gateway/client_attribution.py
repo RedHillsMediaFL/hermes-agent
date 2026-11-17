@@ -78,6 +78,7 @@ class Admission:
     operation_id: str
     payload: dict
     images: list[str]
+    view_session_id: str | None = None
     receipt: dict | None = None
     replayed: bool = False
 
@@ -88,7 +89,8 @@ class Admission:
             if db is None:
                 raise store.CompanionError('storage_unavailable', 503)
             staged, self.receipt, self.replayed = store.admit_message(db, self.owner, self.profile,
-                server._submit_row_target_key(session), self.operation_id, self.payload, text)
+                server._submit_row_target_key(session), self.operation_id, self.payload, text,
+                view_session_id=self.view_session_id)
         if not self.replayed:
             session['_submit_user_row'] = staged
 
@@ -103,19 +105,22 @@ def register(server):
             op = store.operation_id(params.get('operation_id'))
             with session.setdefault('client_admission_lock', threading.RLock()):
                 attachments = attachment_descriptors(params)
+                view = params.get('conversation_session_id') or server._submit_row_target_key(session)
                 with server._session_db(session) as db:
                     if db is None:
                         raise store.CompanionError('storage_unavailable', 503)
                     payload = store.submission_payload(db, owner, profile, server._submit_row_target_key(session), op,
-                                                       params.get('text'), params.get('reply_to'), attachments)
+                                                       params.get('text'), params.get('reply_to'), attachments,
+                                                       view_session_id=view)
                     previous = store.replay_submission(db, owner, op, payload)
                 if previous is not None:
                     return server._ok(rid, {**previous, 'status': 'accepted', 'disposition': 'already_accepted',
+                                           'conversation_session_id': view,
                                            'runtime_session_id': params['session_id'], 'replayed': True})
                 if session.get('running'):
                     raise store.CompanionError('session_busy')
                 images, suffix, directory = prepare_attachments(attachments, op)
-                admission = Admission(owner, profile, op, payload, images)
+                admission = Admission(owner, profile, op, payload, images, view_session_id=view)
                 try:
                     result = server._methods['prompt.submit'](rid, {'session_id': params['session_id'],
                         'profile': profile, 'text': payload['text'] + suffix, '_companion_admission': admission})
@@ -129,6 +134,7 @@ def register(server):
                 return server._ok(rid, {**admission.receipt,
                     'status': 'accepted' if admission.replayed else 'streaming',
                     'disposition': 'already_accepted' if admission.replayed else 'accepted',
+                    'conversation_session_id': view,
                     'runtime_session_id': params['session_id'], 'replayed': admission.replayed})
         except store.CompanionError as exc:
             return _error(server, rid, exc)
@@ -147,11 +153,15 @@ def register(server):
                                                               'source': params.get('source', 'ios'), 'omit_messages': True, 'inline_images': False})
             if 'error' in snapshot:
                 return snapshot
+            resolved = snapshot['result'].get('stored_session_id') or snapshot['result'].get('session_key')
+            if not isinstance(resolved, str) or not resolved:
+                raise store.CompanionError('resume_identity_unavailable', 503)
             if ongoing:
                 return server._ok(rid, {'profile': profile, 'stored_session_id': created['session_id'],
+                                       'resolved_session_id': resolved,
                                        'session': snapshot['result'], 'created': created['created']})
             return server._ok(rid, {'thread': created['thread'], 'session': snapshot['result'],
-                                   'replayed': not created['created']})
+                                   'resolved_session_id': resolved, 'replayed': not created['created']})
         except store.CompanionError as exc:
             return _error(server, rid, exc)
 

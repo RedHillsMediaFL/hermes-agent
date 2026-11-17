@@ -5931,6 +5931,18 @@
           "reply_to": {
             "$ref": "#/components/schemas/DurableSourceRef"
           },
+          "conversation_session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Conversation Session Id"
+          },
           "attachments": {
             "items": {
               "$ref": "#/components/schemas/AttributedAttachment"
@@ -5980,6 +5992,10 @@
             "title": "Stored Session Id",
             "type": "string"
           },
+          "conversation_session_id": {
+            "title": "Conversation Session Id",
+            "type": "string"
+          },
           "user_message": {
             "$ref": "#/components/schemas/StoredMessageReference"
           },
@@ -5997,6 +6013,7 @@
           "operation_id",
           "runtime_session_id",
           "stored_session_id",
+          "conversation_session_id",
           "user_message",
           "reply_to",
           "replayed"
@@ -26691,6 +26708,10 @@
             "title": "Stored Session Id",
             "type": "string"
           },
+          "resolved_session_id": {
+            "title": "Resolved Session Id",
+            "type": "string"
+          },
           "session": {
             "$ref": "#/components/schemas/LiveSessionSnapshot"
           },
@@ -26702,6 +26723,7 @@
         "required": [
           "profile",
           "stored_session_id",
+          "resolved_session_id",
           "session",
           "created"
         ],
@@ -46643,6 +46665,10 @@
           "session": {
             "$ref": "#/components/schemas/LiveSessionSnapshot"
           },
+          "resolved_session_id": {
+            "title": "Resolved Session Id",
+            "type": "string"
+          },
           "replayed": {
             "title": "Replayed",
             "type": "boolean"
@@ -46651,6 +46677,7 @@
         "required": [
           "thread",
           "session",
+          "resolved_session_id",
           "replayed"
         ],
         "title": "TaskCreateResult",

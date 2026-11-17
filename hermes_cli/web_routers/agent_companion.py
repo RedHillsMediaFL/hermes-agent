@@ -35,6 +35,7 @@ def capabilities(request: Request, response: Response, profile: str | None = Non
             'core_chat_protocol': 'legacy-dashboard-v1' if supported else 'canonical-session-authority',
             'core_chat_compatible': supported,
             'features': {'message_replies': supported, 'task_threads': supported,
+                         'conversation_lineage': supported,
                          'ongoing_conversations': supported, 'agent_management': True,
                          'groups': False, 'usage_upload': False, 'life_context': False,
                          'remote_push': False, 'live_activities': False}}
@@ -45,7 +46,8 @@ async def resolve(request: Request, response: Response, session_id: str,
                   row_id: int = Query(..., ge=1, le=2**53-1), profile: str | None = None):
     from hermes_companion import resolve_message
     response.headers['Cache-Control'] = 'no-store'
-    return {'message': await _read(request, profile, lambda db, owner, name: resolve_message(db, owner, name, session_id, row_id))}
+    return {'conversation_session_id': session_id,
+            'message': await _read(request, profile, lambda db, owner, name: resolve_message(db, owner, name, session_id, row_id))}
 
 
 @router.get('/sessions/{session_id}/links')
@@ -55,7 +57,7 @@ async def message_links(request: Request, response: Response, session_id: str,
     from hermes_companion import links
     response.headers['Cache-Control'] = 'no-store'
     rows, cursor = await _read(request, profile, lambda db, owner, name: links(db, owner, name, session_id, limit, after))
-    return {'links': rows, 'next_cursor': cursor}
+    return {'conversation_session_id': session_id, 'links': rows, 'next_cursor': cursor}
 
 
 @router.get('/threads')
@@ -65,7 +67,8 @@ async def thread_list(request: Request, response: Response, profile: str | None 
     from hermes_companion import threads
     response.headers['Cache-Control'] = 'no-store'
     rows = await _read(request, profile, lambda db, owner, name: threads(db, owner, name, parent=origin_session_id, limit=limit, after=after))
-    return {'threads': rows, 'next_cursor': rows[-1]['thread_id'] if len(rows) == limit else None}
+    return {'conversation_session_id': origin_session_id, 'threads': rows,
+            'next_cursor': rows[-1]['thread_id'] if len(rows) == limit else None}
 
 
 @router.get('/threads/{session_id}')
@@ -75,7 +78,7 @@ async def thread_detail(request: Request, response: Response, session_id: str, p
     rows = await _read(request, profile, lambda db, owner, name: threads(db, owner, name, child=session_id))
     if not rows:
         raise HTTPException(404, 'thread_not_found')
-    return {'thread': rows[0]}
+    return {'conversation_session_id': session_id, 'thread': rows[0]}
 
 
 @router.get('/roster')

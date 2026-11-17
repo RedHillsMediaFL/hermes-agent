@@ -8,6 +8,9 @@ enable telemetry, or claim compatibility with the canonical session-authority tr
 Clients first read `GET /api/agent/v1/capabilities?profile=default`, verify the serving profile,
 then independently verify a fresh authenticated WebSocket `gateway.ready` frame. All new chat
 features are false on the canonical transport; a capability document is not a transport handshake.
+Reply/task clients that use compression-lineage aliases must also require
+`features.conversation_lineage: true`. Earlier compatibility builds can still serve ordinary chat
+without advertising this stronger attribution contract.
 Existing dashboard authentication, native PKCE bearer tokens and single-use WebSocket tickets
 remain the authentication boundary. Hermes remains a single-owner application: different dashboard
 usernames are not separate tenants.
@@ -21,7 +24,7 @@ source or wrong profile is refused. The server produces bounded reference snapsh
 cannot submit their own snapshot text or identity.
 
 - `session.submit_attributed`: `profile`, runtime `session_id`, UUID `operation_id`, `text`,
-  `reply_to` and optional `attachments`. The user row, exact reply reference and operation receipt
+  `reply_to`, the selected `conversation_session_id` and optional `attachments`. The user row, exact reply reference and operation receipt
   commit in one SessionDB writer transaction. A busy conversation returns RPC error `4091`,
   `code: session_busy`, `accepted: false`, `retryable: true`, without queueing or steering.
 - `session.task_create`: `profile`, UUID `operation_id`, `origin`, `title`, and optional `source`
@@ -30,6 +33,20 @@ cannot submit their own snapshot text or identity.
 - `session.ongoing_open`: `profile` and optional `source` (`ios` or `desktop`, default `ios`).
   A durable per-profile map ensures one ongoing session without title or recency inference.
   Compression is projected through `ongoing_resolved_session_id` in the roster.
+
+Resolve, links, filtered thread-list and thread-detail responses echo the requested view in
+`conversation_session_id`. Message references and each link's `session_id` keep their exact
+physical storage session IDs, including ancestor segments. The server authorizes every hop of
+the same owner/profile compression lineage; independent task, branch, reset, delegate and tool
+sessions never join their parent's conversation. Copied protected-tail input produces one link;
+rewound copies cannot revive an ancestor link. Thread detail for a compacted task preserves its
+original `thread_id` and origin, with an echo for the selected active task view.
+
+Attributed submit echoes the caller's authorized view on both initial acceptance and replay,
+while `stored_session_id` and the accepted user reference identify the actual destination segment.
+Task/ongoing opening returns `resolved_session_id` from its real resume snapshot, separately from
+the stable task or mapped ongoing root. This handles compression between drafting, sending and
+reconnection without guessing a replacement row or changing the accepted operation's association.
 
 Exact retries replay the original association with `replayed: true`; a repeated operation ID with
 a changed payload is `operation_conflict`. An accepted retry has `status: accepted` and

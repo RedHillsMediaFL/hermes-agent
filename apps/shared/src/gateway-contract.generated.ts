@@ -3198,6 +3198,7 @@ export interface AttributedSubmitParams {
   operation_id: string
   text: string
   reply_to: DurableSourceRef
+  conversation_session_id?: string | null
   attachments?: AttributedAttachment[]
 }
 export interface DurableSourceRef {
@@ -3218,6 +3219,7 @@ export interface AttributedSubmitResult {
   operation_id: string
   runtime_session_id: string
   stored_session_id: string
+  conversation_session_id: string
   user_message: StoredMessageReference
   reply_to: StoredMessageReference
   replayed: boolean
@@ -3245,6 +3247,7 @@ export interface TaskCreateParams {
 export interface TaskCreateResult {
   thread: TaskThread
   session: LiveSessionSnapshot
+  resolved_session_id: string
   replayed: boolean
 }
 export interface TaskThread {
@@ -3362,6 +3365,7 @@ export interface OngoingOpenParams {
 export interface OngoingOpenResult {
   profile: string
   stored_session_id: string
+  resolved_session_id: string
   session: LiveSessionSnapshot
   created: boolean
 }

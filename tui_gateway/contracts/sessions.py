@@ -138,6 +138,7 @@ class AttributedSubmitParams(SessionParams):
     operation_id: str
     text: str
     reply_to: DurableSourceRef
+    conversation_session_id: str | None = None
     attachments: list[AttributedAttachment] = Field(default_factory=list, max_length=16)
 
 
@@ -147,6 +148,7 @@ class AttributedSubmitResult(Result):
     operation_id: str
     runtime_session_id: str
     stored_session_id: str
+    conversation_session_id: str
     user_message: StoredMessageReference
     reply_to: StoredMessageReference
     replayed: bool
@@ -166,12 +168,14 @@ class OngoingOpenParams(ProfileParams):
 class TaskCreateResult(Result):
     thread: TaskThread
     session: LiveSessionSnapshot
+    resolved_session_id: str
     replayed: bool
 
 
 class OngoingOpenResult(Result):
     profile: str
     stored_session_id: str
+    resolved_session_id: str
     session: LiveSessionSnapshot
     created: bool
 
