@@ -2271,7 +2271,7 @@ def _coalesce_session_name_args(argv: list) -> list:
         "chat", "model", "gateway", "setup", "whatsapp", "whatsapp-cloud", "login", "logout",
         "auth", "status", "cron", "doctor", "config", "pairing", "skills", "tools", "mcp",
         "sessions", "insights", "update", "uninstall", "profile", "dashboard", "serve", "webapp",
-        "desktop", "gui", "claw", "plugins", "security", "acp", "webhook", "peer",
+        "desktop", "gui", "claw", "plugins", "security", "acp", "webhook", "peer", "operator",
         "memory", "dump", "debug", "backup", "import", "completion", "logs", "usage",
     }
     _SESSION_FLAGS = {"-c", "--continue", "-r", "--resume"}
@@ -2573,13 +2573,12 @@ _BUILTIN_SUBCOMMANDS = frozenset(
         "dump", "egress", "fallback", "gateway", "hooks", "import", "insights",
         "gui", "desktop", "kanban", "login", "logout", "logs", "lsp", "mcp", "memory", "migrate", "moa",
         "journey", "memory-graph", "learning",
-        "model", "monitoring", "pairing", "pause", "peer", "pets", "plugins", "portal", "profile",
+        "model", "monitoring", "operator", "pairing", "pause", "peer", "pets", "plugins", "portal", "profile",
         "project", "proxy", "prompt-size", "resume", "send", "sessions", "setup",
         "skin", "skills", "slack", "status", "tools", "uninstall", "update",
         "usage", "vault",
         "webhook", "whatsapp", "whatsapp-cloud", "worktree", "chat", "secrets", "security",
-        "browser",
-        "verify",
+        "browser", "verify",
         # Plugin commands missing from top-level --help is an accepted trade-off.
         "help",
     }
@@ -3103,7 +3102,7 @@ def _build_cli_parser():
     those modules never import main.
     """
     from hermes_cli._parser import build_top_level_parser
-
+    from hermes_cli.subcommands.operator import build_operator_parser
     parser, subparsers, chat_parser = build_top_level_parser()
     chat_parser.set_defaults(func=cmd_chat)
 
@@ -3161,6 +3160,7 @@ def _build_cli_parser():
     build_verify_parser(subparsers, cmd_verify=cmd_verify)
     build_security_parser(subparsers, cmd_security=cmd_security)
     build_approvals_parser(subparsers, cmd_approvals=cmd_approvals)
+    build_operator_parser(subparsers)
     build_dump_parser(subparsers, cmd_dump=cmd_dump)
     build_debug_parser(subparsers, cmd_debug=cmd_debug)
     build_backup_parser(subparsers, cmd_backup=cmd_backup)

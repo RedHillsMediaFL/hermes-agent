@@ -10,7 +10,8 @@ import re
 
 # API-key style headers (single opaque value, no scheme word): non-vendor-prefix
 # values would otherwise leak when a curl command is echoed into tool output.
-SECRET_HEADER_NAME_LIST = ("x-api-key", "x-goog-api-key", "api-key", "apikey", "x-api-token", "x-auth-token", "x-access-token")
+SECRET_HEADER_NAME_LIST = ("x-api-key", "x-goog-api-key", "api-key", "apikey", "x-api-token", "x-auth-token", "x-access-token",
+                          "x-hermes-operator-grant")
 _SECRET_HEADER_NAMES = rf"(?:{'|'.join(SECRET_HEADER_NAME_LIST)})"
 _SECRET_HEADER_LINE_RE = re.compile(
     rf"(^[ \t]*(?:[<>][ \t]+)?{_SECRET_HEADER_NAMES}[ \t]*:[ \t]*)([^\r\n]+)",

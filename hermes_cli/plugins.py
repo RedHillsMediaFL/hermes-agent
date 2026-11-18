@@ -706,6 +706,12 @@ class PluginManager(PluginLoaderMixin, PluginDispatchMixin, PluginLedgerMixin):
 sys.modules[PluginContext.__module__].PluginManager = PluginManager
 
 
+def operator_authorization(request, *, profile, capability):
+    """Supported scoped operator verification for dashboard plugin APIs (lazy HTTP dependency)."""
+    from hermes_cli.agent_setup.authority import operator_authorization as verify
+    return verify(request, profile=profile, capability=capability)
+
+
 # Module-level singleton & convenience functions.
 
 # Legacy single-slot "current" manager, kept so tests that monkeypatch ``_plugin_manager`` keep

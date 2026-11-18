@@ -348,7 +348,8 @@ class HostRuntime:
         async def request() -> dict[str, Any]:
             import httpx
             from hermes_cli.plugin_host_http_auth import with_hosted_admission
-            transport = httpx.ASGITransport(app=with_hosted_admission(app, params.get("authenticated")))
+            transport = httpx.ASGITransport(app=with_hosted_admission(
+                app, params.get("authenticated"), params.get('operator_principal'), params.get('verified_session')))
             async with httpx.AsyncClient(transport=transport, base_url="http://plugin-host") as client:
                 response = await client.request(
                     str(params["method"]), str(params["path"]), params=str(params.get("query") or ""),
@@ -366,6 +367,10 @@ class HostRuntime:
             raise LookupError(f"plugin host callable {ref} was released")
         args, kwargs = self._decode_args(params)
         return self._encode_result(self.owners.get(ref, ""), self._run(fn(*args, **kwargs)))
+
+    def op_capability_probe(self, params: dict[str, Any]) -> Any:
+        from hermes_cli.agent_setup.hosted_capabilities import child_probe
+        return child_probe(self, params)
 
     def op_obj_invoke(self, params: dict[str, Any]) -> Any:
         ref = int(params["ref"])
@@ -443,6 +448,7 @@ _HANDLERS: dict[str, Callable[[HostRuntime, dict[str, Any]], Any]] = {
     "hello": HostRuntime.op_hello, "load": HostRuntime.op_load, "load_instance": HostRuntime.op_load_instance,
     "asgi": HostRuntime.op_asgi, "profile_call": HostRuntime.op_profile_call,
     "invoke": HostRuntime.op_invoke,
+    "capability_probe": HostRuntime.op_capability_probe,
     "obj_invoke": HostRuntime.op_obj_invoke, "obj_getattr": HostRuntime.op_obj_getattr,
     "obj_setattr": HostRuntime.op_obj_setattr, "unload": HostRuntime.op_unload,
     "release": HostRuntime.op_release, "config_schema": HostRuntime.op_config_schema,

@@ -54,21 +54,22 @@ async def _read(request, profile, callback):
 
 
 @router.get('/capabilities')
-def capabilities(request: Request, response: Response, profile: str | None = None):
+async def capabilities(request: Request, response: Response, profile: str | None = None):
     if legacy := _standalone(request, profile):
-        return legacy.capabilities(request, response, profile)
+        return await legacy.capabilities(request, response, profile)
     from hermes_cli.install_identity import get_install_id
     from hermes_cli.web_routers.sessions import _serving_profile
     authority, actor = _identity(request, profile)
     supported = authority is not None and 'session:read' in actor.capabilities
+    from hermes_cli.agent_setup.capabilities import extension_features
+    extensions = await extension_features(request, _serving_profile(profile), actor)
     response.headers['Cache-Control'] = 'no-store'
     return {'protocol_version': 1, 'serving_profile': _serving_profile(profile),
             'installation_id': get_install_id(), 'core_chat_protocol': 'canonical-session-authority',
             'core_chat_compatible': supported,
             'features': {'message_replies': supported, 'task_threads': supported,
                          'conversation_lineage': supported, 'ongoing_conversations': supported,
-                         'agent_management': True, 'groups': False, 'usage_upload': False,
-                         'life_context': False, 'remote_push': False, 'live_activities': False}}
+                         'agent_management': True, **extensions}}
 
 
 @router.get('/messages/resolve')

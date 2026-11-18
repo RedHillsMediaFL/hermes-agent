@@ -33,10 +33,12 @@ _log = logging.getLogger("hermes_cli.web_server")
 
 # Valid for every served profile, so a profile's plugin code must never receive them.
 _GATEWAY_CREDENTIAL_HEADERS = frozenset({
+    'x-hermes-operator-grant',
     "authorization", "cookie", "host", "x-hermes-gateway-ticket", "x-hermes-session-token"})
 # Every query credential the gateway accepts (``web_server_chat._ws_auth_ok``, ``_has_valid_query_token``,
-# the display bridge, the PTY reattach key) and the profile selector; compared after URL-decoding.
-_GATEWAY_QUERY_KEYS = frozenset({"token", "ticket", "internal", "display_ticket", "attach", "profile"})
+# the display bridge, the PTY reattach key); compared after URL-decoding. The exact profile
+# selector remains available for a plugin to verify its own profile-scoped authorization.
+_GATEWAY_QUERY_KEYS = frozenset({"token", "ticket", "internal", "display_ticket", "attach"})
 
 _profile_plugins: dict[str, list] = {}
 # Bumped by each explicit rescan of a profile: a scan begun before it publishes neither its list nor a miss.
@@ -265,6 +267,12 @@ async def forward_secondary_plugin_request(request, name: str) -> Optional[Respo
     query = urlencode([(k, v) for k, v in parse_qsl(request.url.query, keep_blank_values=True)
                        if k not in _GATEWAY_QUERY_KEYS])
     headers = [(k, v) for k, v in request.headers.items() if k.lower() not in _GATEWAY_CREDENTIAL_HEADERS]
+    from hermes_cli.agent_setup.authority import hosted_operator_envelope
+    from hermes_cli.plugin_host_http_auth import verified_session_envelope
+    from hermes_constants import profile_name_for_home
+    profile = profile_name_for_home(home) or 'default'
+    operator_principal = hosted_operator_envelope(request, profile)
+    verified_session = verified_session_envelope(request, profile=profile, home=home)
     body = await request.body()
     from hermes_cli.plugin_host_http_auth import admitted_for_sensitive_route
     authenticated = admitted_for_sensitive_route(request)
@@ -273,7 +281,8 @@ async def forward_secondary_plugin_request(request, name: str) -> Optional[Respo
         from hermes_cli.plugins import get_plugin_manager
         host = get_plugin_manager()._plugin_host()  # the active (secondary) profile's own host
         return host.asgi_request(name, str(plugin["_dir"]), str(plugin["_api_file"]), request.method, path,
-                                 query, headers, body, timeout=timeout, authenticated=authenticated)
+                                 query, headers, body, timeout=timeout, authenticated=authenticated,
+                                 operator_principal=operator_principal, verified_session=verified_session)
 
     try:
         return await run_hosted_request(home, name, call)

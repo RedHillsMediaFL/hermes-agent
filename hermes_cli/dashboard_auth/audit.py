@@ -30,7 +30,8 @@ _BACKUP_COUNT = 3
 # Field names that must never appear in the log raw; matching kwargs are dropped.
 _REDACTED_FIELDS: frozenset = frozenset({
     "access_token", "refresh_token", "code", "code_verifier",
-    "state", "ticket", "cookie", "Authorization", "authorization"})
+    "state", "ticket", "cookie", "Authorization", "authorization", "operator_grant",
+    "verification_code", "X-Hermes-Operator-Grant", "x-hermes-operator-grant"})
 
 
 class AuditEvent(enum.Enum):

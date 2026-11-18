@@ -331,13 +331,16 @@ class PluginHost:
 
     def asgi_request(self, plugin_name: str, dashboard_dir: str, api_file: str, method: str, path: str,
                      query: str, headers: list, body: bytes, *, timeout: Optional[float] = None,
-                     authenticated: bool = False) -> dict[str, Any]:
+                     authenticated: bool = False, operator_principal: Optional[dict] = None,
+                     verified_session: Optional[dict] = None) -> dict[str, Any]:
         """One dashboard ``/api/plugins/<name>/`` request, served by the plugin's router in the host;
         ``TimeoutError`` when no answer comes within ``timeout`` seconds (the host is left running)."""
         self.ensure_started()
         return self._call("asgi", {"plugin": plugin_name, "dashboard_dir": dashboard_dir, "api_file": api_file,
                                    "method": method, "path": path, "query": query,
                                    "authenticated": authenticated is True,
+                                   "operator_principal": operator_principal,
+                                   "verified_session": verified_session,
                                    "headers": [list(h) for h in headers], "body": encode(body)},
                           timeout=timeout)
 
@@ -407,6 +410,9 @@ class PluginHost:
             return self._serve_facade(params)
         if method == "session_event":
             return self._serve_session_event(params)
+        if method == 'capability_read':
+            from hermes_cli.agent_setup.hosted_capabilities import serve_read
+            return serve_read(params)
         if method == "dispose":
             handle = self._handles.pop(int(params["handle"]), None)
             if handle is not None:
@@ -511,6 +517,10 @@ class PluginHost:
         ref_id, generation = int(ref["__callable__"]), self._generation
 
         async def async_proxy(*args: Any, **kwargs: Any) -> Any:
+            from hermes_cli.agent_setup.capabilities import ClientCapabilityContext
+            if len(args) == 1 and not kwargs and isinstance(args[0], ClientCapabilityContext):
+                from hermes_cli.agent_setup.hosted_capabilities import invoke
+                return await invoke(self, ref_id, generation, args[0])
             return await asyncio.to_thread(self.invoke, ref_id, args, kwargs, generation=generation)
 
         def sync_proxy(*args: Any, **kwargs: Any) -> Any:

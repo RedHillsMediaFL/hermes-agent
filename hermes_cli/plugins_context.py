@@ -64,6 +64,21 @@ class PluginContext(PluginCapabilityCtxMixin, PluginIdleTaskCtxMixin):
             for key, loaded in self._manager._plugins.items()
         )
 
+    def operator_authorization(self, request, *, profile: str, capability: str):
+        """Verify a revocable, account/install/profile-bound recipient-policy delegation."""
+        from hermes_cli.agent_setup.authority import operator_authorization
+        return operator_authorization(request, profile=profile, capability=capability)
+
+    @_serialized_replacement
+    @_ignore_after_abandoned_load
+    def register_client_capability(self, feature: str, probe, *, paths: tuple[str, ...] = ()):
+        """Register an owning extension's authenticated, versioned read-only feature proof."""
+        from hermes_cli.agent_setup import capabilities
+        provider = capabilities.ClientCapabilityProbe(feature, probe, tuple(paths), self.manifest.name)
+        return self._register_scoped_provider(provider, kind='client_capability',
+            base_class=capabilities.ClientCapabilityProbe, registry=capabilities,
+            label='client capability', normalize=None)
+
     def _segments(self, key: str) -> tuple[str, ...]:
         """Validated plugin-relative settings path (warn + re-raise on rejection)."""
         try:

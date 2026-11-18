@@ -26,10 +26,12 @@ async def _read(request, profile, callback):
 
 
 @router.get('/capabilities')
-def capabilities(request: Request, response: Response, profile: str | None = None):
+async def capabilities(request: Request, response: Response, profile: str | None = None):
     from hermes_cli.install_identity import get_install_id
     authority, _, name = _identity(request, profile)
     supported = authority is None and getattr(request.app.state, 'session_authority', None) is None
+    from hermes_cli.agent_setup.capabilities import extension_features
+    extensions = await extension_features(request, name, None)
     response.headers['Cache-Control'] = 'no-store'
     return {'protocol_version': 1, 'serving_profile': name, 'installation_id': get_install_id(),
             'core_chat_protocol': 'legacy-dashboard-v1' if supported else 'canonical-session-authority',
@@ -37,8 +39,7 @@ def capabilities(request: Request, response: Response, profile: str | None = Non
             'features': {'message_replies': supported, 'task_threads': supported,
                          'conversation_lineage': supported,
                          'ongoing_conversations': supported, 'agent_management': True,
-                         'groups': False, 'usage_upload': False, 'life_context': False,
-                         'remote_push': False, 'live_activities': False}}
+                         **extensions}}
 
 
 @router.get('/messages/resolve')

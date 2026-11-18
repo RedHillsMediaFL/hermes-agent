@@ -1051,14 +1051,26 @@ def _mount_hosted_plugin_api(app, plugin: dict, api_file_name: str) -> None:
         if target is None:
             return JSONResponse({"detail": f"plugin {name!r} is not enabled in this profile"}, status_code=404)
         host, dashboard_dir, api_file = target
-        from hermes_cli.web_server_plugin_profiles import run_hosted_request
-        query, headers = request.url.query, [(k, v) for k, v in request.headers.items() if k.lower() != "host"]
+        from hermes_cli.web_server_plugin_profiles import (
+            _GATEWAY_CREDENTIAL_HEADERS, _GATEWAY_QUERY_KEYS, run_hosted_request,
+        )
+        from hermes_cli.agent_setup.authority import hosted_operator_envelope
+        from hermes_constants import profile_name_for_home
+        from hermes_cli.plugin_host_http_auth import verified_session_envelope
+        from urllib.parse import parse_qsl, urlencode
+        profile = profile_name_for_home(host.home) or 'default'
+        operator_principal = hosted_operator_envelope(request, profile)
+        verified_session = verified_session_envelope(request, profile=profile, home=host.home)
+        query = urlencode([(k, v) for k, v in parse_qsl(request.url.query, keep_blank_values=True)
+                           if k not in _GATEWAY_QUERY_KEYS])
+        headers = [(k, v) for k, v in request.headers.items() if k.lower() not in _GATEWAY_CREDENTIAL_HEADERS]
         body = await request.body()
         from hermes_cli.plugin_host_http_auth import admitted_for_sensitive_route
         authenticated = admitted_for_sensitive_route(request)
         return await run_hosted_request(host.home, name, lambda timeout: host.asgi_request(
             name, dashboard_dir, api_file, request.method, "/" + path, query, headers, body,
-            timeout=timeout, authenticated=authenticated))
+            timeout=timeout, authenticated=authenticated, operator_principal=operator_principal,
+            verified_session=verified_session))
 
     app.add_api_route(f"/api/plugins/{name}/{{path:path}}", forward, include_in_schema=False,
                       methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
