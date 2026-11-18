@@ -5,7 +5,7 @@ The initial server owner approves a device through the existing same-user native
 The device then administers exact profiles in the app without receiving provider credentials.
 
 The owner runs `hermes operator approve CODE` on the existing Hermes host and reviews the
-requesting account, registered app instance and exact profile list before typing `approve`.
+requesting account, registered app instance, exact profile list and requested capabilities before typing `approve`.
 `hermes operator list`, `deny CODE` and `revoke GRANT_ID` provide local inspection and revocation.
 This initial same-user ownership ceremony is separate from ordinary policy editing inside Agent.
 
@@ -15,17 +15,17 @@ All paths below start with `/api/agent/v1/operator`. Responses use `Cache-Contro
 Creation, polling and redemption require a verified interactive dashboard account. Approval and denial
 require the existing local `native-http` grant with exactly `http:owner` authority; client claims never suffice.
 
-- `POST /pairings`: closed JSON `{device_id, profiles, code_challenge, code_challenge_method:"S256"}`.
+- `POST /pairings`: closed JSON `{device_id, profiles, code_challenge, code_challenge_method:"S256"}` with an optional `capabilities` array.
   Device ID is a canonical UUID. Profiles are unique exact names (1–32), and the challenge is unpadded
   base64url SHA256 (43 characters). Returns a pairing receipt.
 - `GET /pairings/{pairing_id}`: the originating authenticated account or local owner can inspect it.
-- `POST /pairings/{pairing_id}/approve`: local owner supplies `{profiles:[the exact requested profiles]}`.
+- `POST /pairings/{pairing_id}/approve`: local owner supplies `{profiles:[the exact requested profiles]}` and, for a nonlegacy request, `capabilities` matching the exact requested set.
 - `POST /pairings/{pairing_id}/deny`: local owner supplies `{}`.
 - `POST /pairings/{pairing_id}/redeem`: originating account supplies `{device_id, code_verifier}`.
   PKCE verifier follows RFC7636 (43–128 unreserved characters). A successful redemption consumes the
   approved pairing atomically and returns an opaque grant exactly once.
 - `GET /status?profile=EXACT`: authenticated readiness receipt with `schema_version`, `installation_id`,
-  `account_id`, `profile`, `pairing_supported:true`, and `can_manage_policy`.
+  `account_id`, `profile`, `pairing_supported:true`, `can_manage_policy`, and `supported_capabilities`.
 - `GET /grants/current`: requires the grant and its originating authenticated account; returns its
   nonsecret principal receipt.
 - `DELETE /grants/current`: revokes that grant, returning `{ok:true,schema_version:1,revoked:true,grant_id}`.
@@ -44,8 +44,12 @@ Redemption returns `schema_version:1`, `installation_id`, `grant_id`, `account_i
 are revocable immediately. Only token hashes are persisted.
 
 The grant is sent in `X-Hermes-Operator-Grant` alongside normal authenticated requests, never in a URL.
-Its fixed capability set is `recipient-policy:read` and `recipient-policy:write`. It grants no model,
-provider, shell, filesystem, runtime update, or AI-sharing consent authority. Installation, account,
+Omitted capabilities and all legacy/null records retain only `recipient-policy:read` and `recipient-policy:write`.
+New requests may explicitly include `companion:manage`, separately or combined with recipient capabilities.
+Approval, redemption and renewal preserve the exact persisted set; adding a supported capability never
+elevates an existing grant. Companion management controls only the fixed reviewed companion through the
+profile-scoped routes below, with an exact full lowercase commit selected by the signed app. No grant supplies model, provider, shell, arbitrary filesystem, runtime
+update, or AI-sharing consent authority. Installation, account,
 device and exact profile membership remain bound. Another account cannot use the grant after sign-in changes.
 `device_id` identifies the registered app instance at pairing and redemption; this is standard PKCE
 bearer delegation, not per-request cryptographic proof of possession. Store the bearer in device-only
@@ -55,7 +59,7 @@ Keychain storage, use TLS, and renew explicitly while current authority remains 
 
 `from hermes_cli.plugins import operator_authorization` and `ctx.operator_authorization` expose
 `(request, *, profile, capability)`. They return `None` on absent, invalid, expired, revoked, or
-wrong-scope grants, or an immutable mapping with `schema_version:1`, `purpose:"recipient-policy"`,
+wrong-scope grants, or an immutable mapping with `schema_version:1`, `purpose:"recipient-policy"` (or `"companion-management"` for the companion capability),
 `installation_id`, `account_id`, `device_id`, `profiles` (tuple), `profile`, `capabilities` (frozenset),
 `grant_id`, and `expires_at`. Storage failure raises HTTP503 `operator_authority_unavailable`.
 Call before reading a protected body and again immediately before a write after intervening awaits.
@@ -105,3 +109,36 @@ issuer, user, organization and expiry over private IPC. The child verifies the i
 authenticated account and target profile home again. No raw bearer, cookie, operator grant, native
 ticket, access token or refresh token is forwarded. HTTP headers, query values and JSON cannot supply
 this session projection. Ordinary hosted admission alone does not establish a policy operator grant.
+
+## Selected-profile companion management
+
+`/api/agent/v1/setup/companion` manages only the fixed
+`agent-companion-runtime` repository and name; the signed app supplies its reviewed immutable revision. Every request requires
+a genuine verified dashboard/native-app session and exactly one canonical
+`profile=NAME` query selector. A local native ticket does not substitute for app
+approval. Mutations additionally require a current `companion:manage` grant
+issued to that account and app instance for that profile.
+
+| Method | Suffix | Body | Behavior |
+| --- | --- | --- | --- |
+| GET | none | Query includes exactly one `ref=<40 lowercase hex characters>` | Return profile-bound installation state, the app-selected target and `can_manage`. |
+| POST | `/install` | `{"ref":"<reviewed commit>"}` | Install the fixed source at the reviewed commit, without force replacement. |
+| POST | `/enable` | `{"ref":"<reviewed commit>"}` | Enable an owned, clean, pinned checkout from the fixed source only when the installed revision equals this ref. |
+| POST | `/repin` | `{"ref":"<reviewed commit>","expected_revision":"<installed commit>"}` | Use Hermes's normal immutable compare-and-swap update. |
+
+Status returns `schema_version`, `installation_id`, `account_id`, `profile`,
+`pairing_supported`, `required_capability`, `can_manage`, `plugin`, and `target`.
+The plugin object contains `name`, `installed`, `enabled`, `version`, `source`,
+`revision`, `head_revision`, `pinned`, `can_repin`, and `reason`; absent optional
+values are null. The target object contains `repository` and `revision`.
+
+Successful mutations return `ok`, `schema_version`, `installation_id`,
+`account_id`, `profile`, `operation`, `unchanged`, `restart_required`, `sha`,
+`plugin`, and `target`. `sha` is the actual installed revision, including when
+enable preserves an earlier pin. Failures return bounded `detail.code` values.
+
+The normal plugin manager owns dependency admission, checkout protection,
+activation and rescanning. Foreign-source/name-collision checkouts, local edits,
+stale revisions and scan/consent refusals are preserved for operator review.
+There is no arbitrary repository or command input, runtime updater, restart,
+model/provider change or additional service in this API.

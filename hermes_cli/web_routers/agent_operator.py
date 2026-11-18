@@ -9,7 +9,10 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from hermes_cli.agent_setup.authority import (
     account_id, local_owner, operator_authorization, operator_store, require_local_owner, validate_profile,
 )
-from hermes_cli.agent_setup.models import HEADER, OperatorError, PairingInput, exact_object, identifier, profiles
+from hermes_cli.agent_setup.models import (
+    CAPABILITIES, HEADER, SUPPORTED_CAPABILITIES, OperatorError, PairingInput, capabilities,
+    exact_object, identifier, profiles,
+)
 
 router = APIRouter(prefix='/api/agent/v1/operator', tags=['Operator delegation'])
 _NO_STORE = {'Cache-Control': 'no-store'}
@@ -70,8 +73,10 @@ async def approve_pairing(pairing_id: str, request: Request, response: Response)
     require_local_owner(request)
     body = await _body(request)
     def apply():
-        exact_object(body, {'profiles'})
-        return operator_store().decide(identifier(pairing_id), 'approved', profiles(body['profiles']))
+        if type(body) is not dict or set(body) not in ({'profiles'}, {'profiles', 'capabilities'}):
+            raise OperatorError('invalid_operator_request')
+        requested = capabilities(body.get('capabilities', sorted(CAPABILITIES)))
+        return operator_store().decide(identifier(pairing_id), 'approved', profiles(body['profiles']), requested)
     response.headers.update(_NO_STORE)
     return _run(apply)
 
@@ -109,7 +114,8 @@ def status(request: Request, response: Response, profile: str):
     response.headers.update(_NO_STORE)
     return {'schema_version': 1, 'installation_id': operator_store().installation_id,
             'account_id': account, 'profile': profile, 'pairing_supported': True,
-            'can_manage_policy': principal is not None}
+            'can_manage_policy': principal is not None,
+            'supported_capabilities': sorted(SUPPORTED_CAPABILITIES)}
 
 
 def _current(request):

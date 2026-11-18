@@ -13,7 +13,18 @@ import sqlite3
 import time
 import uuid
 
-from hermes_cli.agent_setup.models import CAPABILITIES, OperatorError, pkce_challenge
+from hermes_cli.agent_setup.models import CAPABILITIES, OperatorError, capabilities, pkce_challenge
+
+
+def _row_capabilities(row):
+    # NULL is the immutable legacy scope, never the expanding supported-capability registry.
+    value = row['capabilities']
+    if value is None:
+        return tuple(sorted(CAPABILITIES))
+    try:
+        return capabilities(json.loads(value))
+    except (OperatorError, ValueError, TypeError):
+        raise OperatorError('operator_authority_unavailable', 503) from None
 
 
 class OperatorStore:
@@ -33,6 +44,7 @@ class OperatorStore:
         os.chmod(self.path, 0o600)
         with closing(sqlite3.connect(self.path, timeout=5)) as connection, connection:
             connection.row_factory = sqlite3.Row
+            connection.execute('BEGIN IMMEDIATE')
             connection.execute('CREATE TABLE IF NOT EXISTS pairings (id TEXT PRIMARY KEY, '
                                'installation TEXT, account TEXT, device TEXT, profiles TEXT, challenge TEXT, '
                                'code TEXT, status TEXT, expires INTEGER)')
@@ -41,7 +53,10 @@ class OperatorStore:
                                'profiles TEXT, expires INTEGER, revoked INTEGER NOT NULL DEFAULT 0)')
             connection.execute('CREATE TABLE IF NOT EXISTS renewals (old_id TEXT PRIMARY KEY, '
                                'operation TEXT, new_id TEXT, created INTEGER)')
-            connection.execute('BEGIN IMMEDIATE')
+            for table in ('pairings', 'grants'):
+                columns = {row['name'] for row in connection.execute(f'PRAGMA table_info({table})')}
+                if 'capabilities' not in columns:
+                    connection.execute(f'ALTER TABLE {table} ADD COLUMN capabilities TEXT')
             yield connection
 
     def _pair(self, connection, pairing_id, account=None):
@@ -55,7 +70,7 @@ class OperatorStore:
         status = 'expired' if row['expires'] <= time.time() else row['status']
         return {'schema_version': 1, 'installation_id': row['installation'], 'pairing_id': row['id'],
                 'account_id': row['account'], 'device_id': row['device'],
-                'profiles': json.loads(row['profiles']), 'capabilities': sorted(CAPABILITIES),
+                'profiles': json.loads(row['profiles']), 'capabilities': list(_row_capabilities(row)),
                 'verification_code': row['code'], 'expires_at': row['expires'], 'status': status}
 
     def create(self, account, value):
@@ -67,22 +82,28 @@ class OperatorStore:
             if count >= 8 or total >= 256:
                 raise OperatorError('operator_pairing_limit', 429)
             pairing_id = str(uuid.uuid4())
-            c.execute('INSERT INTO pairings VALUES (?,?,?,?,?,?,?,?,?)',
+            c.execute('INSERT INTO pairings '
+                      '(id,installation,account,device,profiles,challenge,code,status,expires,capabilities) '
+                      'VALUES (?,?,?,?,?,?,?,?,?,?)',
                       (pairing_id, self.installation_id, account, value.device_id, json.dumps(value.profiles),
-                       value.code_challenge, secrets.token_hex(4).upper(), 'pending', now + 600))
+                        value.code_challenge, secrets.token_hex(4).upper(), 'pending', now + 600,
+                        json.dumps(capabilities(list(value.capabilities)))))
             return self._receipt(self._pair(c, pairing_id))
 
     def pairing(self, pairing_id, account=None):
         with self.transaction() as c:
             return self._receipt(self._pair(c, pairing_id, account))
 
-    def decide(self, pairing_id, decision, expected_profiles=None):
+    def decide(self, pairing_id, decision, expected_profiles=None, expected_capabilities=None):
         with self.transaction() as c:
             row = self._pair(c, pairing_id)
             if row['expires'] <= time.time() or row['status'] != 'pending':
                 raise OperatorError('operator_pairing_not_pending', 409)
             if decision == 'approved' and tuple(json.loads(row['profiles'])) != expected_profiles:
                 raise OperatorError('operator_profile_mismatch', 403)
+            approved = tuple(sorted(CAPABILITIES)) if expected_capabilities is None else expected_capabilities
+            if decision == 'approved' and _row_capabilities(row) != approved:
+                raise OperatorError('operator_capability_mismatch', 403)
             c.execute('UPDATE pairings SET status=? WHERE id=?', (decision, pairing_id))
             return self._receipt(self._pair(c, pairing_id))
 
@@ -95,9 +116,11 @@ class OperatorStore:
                 raise OperatorError('operator_redemption_refused', 403)
             token, grant_id = 'hop1_' + secrets.token_urlsafe(32), str(uuid.uuid4())
             expiry = int(time.time()) + 30 * 86400
-            c.execute('INSERT INTO grants VALUES (?,?,?,?,?,?,?,0)',
+            c.execute('INSERT INTO grants '
+                      '(id,token_hash,installation,account,device,profiles,expires,revoked,capabilities) '
+                      'VALUES (?,?,?,?,?,?,?,0,?)',
                       (grant_id, self.token_hash(token), self.installation_id, account, device,
-                       row['profiles'], expiry))
+                        row['profiles'], expiry, json.dumps(_row_capabilities(row))))
             c.execute("UPDATE pairings SET status='redeemed' WHERE id=?", (pairing_id,))
             return {**self._principal(c.execute('SELECT * FROM grants WHERE id=?', (grant_id,)).fetchone()),
                     'operator_grant': token}
@@ -110,7 +133,7 @@ class OperatorStore:
     def _principal(row):
         return {'schema_version': 1, 'installation_id': row['installation'], 'grant_id': row['id'],
                 'account_id': row['account'], 'device_id': row['device'],
-                'profiles': json.loads(row['profiles']), 'capabilities': sorted(CAPABILITIES),
+                'profiles': json.loads(row['profiles']), 'capabilities': list(_row_capabilities(row)),
                 'expires_at': row['expires']}
 
     def principal(self, *, token=None, grant_id=None):
@@ -150,9 +173,11 @@ class OperatorStore:
             if old['revoked'] or old['expires'] <= time.time():
                 raise OperatorError('operator_renewal_refused', 403)
             grant_id, expiry = str(uuid.uuid4()), int(time.time()) + 30 * 86400
-            c.execute('INSERT INTO grants VALUES (?,?,?,?,?,?,?,0)',
+            c.execute('INSERT INTO grants '
+                      '(id,token_hash,installation,account,device,profiles,expires,revoked,capabilities) '
+                      'VALUES (?,?,?,?,?,?,?,0,?)',
                       (grant_id, self.token_hash(new_token), self.installation_id, account,
-                       device, old['profiles'], expiry))
+                        device, old['profiles'], expiry, json.dumps(_row_capabilities(old))))
             c.execute('UPDATE grants SET revoked=1 WHERE id=?', (old['id'],))
             c.execute('INSERT INTO renewals VALUES (?,?,?,?)',
                       (old['id'], operation, grant_id, int(time.time())))

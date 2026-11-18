@@ -31,7 +31,8 @@ def command(args):
         action = args.operator_action
         if action == 'list':
             for row in store.pending():
-                print(json.dumps({k: row[k] for k in ['pairing_id', 'account_id', 'device_id', 'profiles', 'expires_at']}))
+                print(json.dumps({k: row[k] for k in ['pairing_id', 'account_id', 'device_id', 'profiles',
+                                                     'capabilities', 'expires_at']}))
             return
         if action == 'revoke':
             store.revoke(identifier(args.grant_id))
@@ -43,14 +44,14 @@ def command(args):
         print('Requesting account: ' + row['account_id'])
         print('Registered app instance: ' + row['device_id'])
         print('Requested profiles: ' + ', '.join(row['profiles']))
-        print('Authority: recipient-policy read/write only.')
+        print('Requested authority: ' + ', '.join(row['capabilities']))
         if action == 'deny':
             store.decide(row['pairing_id'], 'denied')
             print('Pairing denied.')
             return
         if not sys.stdin.isatty() or input('Type approve to authorize exactly this request: ').strip() != 'approve':
             raise OperatorError('operator_approval_not_confirmed', 403)
-        store.decide(row['pairing_id'], 'approved', tuple(row['profiles']))
+        store.decide(row['pairing_id'], 'approved', tuple(row['profiles']), tuple(row['capabilities']))
         print('Device approved. Continue in Agent to finish pairing.')
     except (OperatorError, OSError, sqlite3.Error) as exc:
         print(exc.code if isinstance(exc, OperatorError) else 'operator_authority_unavailable', file=sys.stderr)

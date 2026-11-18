@@ -782,6 +782,7 @@ def _get_dashboard_plugins(force_rescan: bool = False) -> list:
 from hermes_cli.web_routers import (
     agent_conversations as _agent_conversations_routes,
     agent_operator as _agent_operator_routes,
+    agent_companion_setup as _agent_companion_setup_routes,
     files as _files_routes,
     git as _git_routes,
     local_models as _local_models_routes,
@@ -847,6 +848,7 @@ app.include_router(_oauth_routes.router)
 app.include_router(_sessions_routes.manage_router)
 app.include_router(_agent_conversations_routes.router)
 app.include_router(_agent_operator_routes.router)
+app.include_router(_agent_companion_setup_routes.router)
 app.include_router(_status_routes.logs_router)
 app.include_router(_cron_routes.router)
 app.include_router(_mcp_routes.router)

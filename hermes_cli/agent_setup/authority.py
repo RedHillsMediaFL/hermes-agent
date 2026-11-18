@@ -8,7 +8,7 @@ from types import MappingProxyType
 
 from fastapi import HTTPException
 
-from hermes_cli.agent_setup.models import CAPABILITIES, HEADER, PROFILE
+from hermes_cli.agent_setup.models import CAPABILITIES, SUPPORTED_CAPABILITIES, HEADER, PROFILE, OperatorError
 from hermes_cli.agent_setup.storage import OperatorStore
 
 
@@ -123,7 +123,7 @@ def _verified(request, profile):
 
 def operator_authorization(request, *, profile, capability):
     """Immutable scoped authority, None on refusal, HTTP503 on unavailable storage."""
-    if capability not in CAPABILITIES or type(profile) is not str or not PROFILE.fullmatch(profile):
+    if capability not in SUPPORTED_CAPABILITIES or type(profile) is not str or not PROFILE.fullmatch(profile):
         return None
     if (not local_owner(request) and not request.headers.getlist(HEADER)
             and getattr(request.state, 'hosted_operator_principal', None) is None):
@@ -136,13 +136,16 @@ def operator_authorization(request, *, profile, capability):
         if exc.status_code in (400, 401, 403, 404):
             return None
         raise
-    except (OSError, sqlite3.Error):
+    except (OSError, sqlite3.Error, OperatorError):
         raise HTTPException(503, 'operator_authority_unavailable',
                             headers={'Cache-Control': 'no-store'}) from None
-    if principal is None or profile not in principal['profiles']:
+    if (principal is None or profile not in principal['profiles']
+            or capability not in principal['capabilities']):
         return None
-    return MappingProxyType({**principal, 'purpose': 'recipient-policy', 'profile': profile,
-                             'profiles': tuple(principal['profiles']), 'capabilities': CAPABILITIES})
+    purpose = 'companion-management' if capability == 'companion:manage' else 'recipient-policy'
+    return MappingProxyType({**principal, 'purpose': purpose, 'profile': profile,
+                             'profiles': tuple(principal['profiles']),
+                             'capabilities': frozenset(principal['capabilities'])})
 
 
 def hosted_operator_envelope(request, profile):
