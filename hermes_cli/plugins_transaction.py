@@ -3,8 +3,11 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
 import shutil
+
+if TYPE_CHECKING:
+    from hermes_cli.plugins_cmd_repin import RepinIntent
 
 
 def recover_plugin_publication(project: Path, row: dict, journal: Path) -> None:
@@ -88,6 +91,34 @@ def _refresh_declared_dependencies(target: Path, staged: Path, manifest: dict, *
             f"Update declined: {reason}. The installed plugin and active environment are unchanged.")
 
 
+def _stage_custom_update(target: Path, staged: Path, source: str, *,
+                         feed_revision: str | None, repin: RepinIntent | None) -> tuple[str, str]:
+    """Keep the checkout and every local ref in the unpublished copy."""
+    from hermes_cli import plugins_cmd as pc
+    from hermes_cli.plugins_cmd_git import _refuse_foreign_checkout
+
+    shutil.copytree(target, staged, symlinks=True, ignore=shutil.ignore_patterns("__pycache__"))
+    git = pc._resolve_git_executable()
+    if repin is not None:
+        pc._checkout_exact_revision(staged, git, repin.ref, source_url=source)
+        if pc._git_head_revision(staged, git) != repin.ref:
+            raise pc.PluginOperationError("The requested revision must name a commit, not a tag object.")
+        output = f"Updated to explicit pin {repin.ref}"
+    elif feed_revision:
+        _refuse_foreign_checkout(git, target)
+        status = pc._git_or_raise(git, target, "status", "--porcelain",
+                                  failure_prefix="Could not inspect plugin edits: ")
+        if status.stdout.strip():
+            raise pc.PluginOperationError("Pinned feed update has local changes; save them before updating.")
+        pc._checkout_exact_revision(staged, git, feed_revision)
+        output = f"Updated to feed commit {feed_revision}"
+    else:
+        ok, output = pc._git_pull_plugin_dir(staged)
+        if not ok:
+            raise pc.PluginOperationError(output)
+    return pc._git_head_revision(staged, git), output
+
+
 def update_plugin(
     target: Path,
     *,
@@ -97,6 +128,7 @@ def update_plugin(
     scan_decision_cb: Callable[[Any], bool] | None = None,
     carry_user_files: Callable[[Path], list[str]] | None = None,
     surface_gate: Callable[[dict, Path], None] = lambda _manifest, _staged: None,
+    repin: RepinIntent | dict[str, str] | None = None,
 ) -> str:
     """Prepare a catalog re-pin or custom Git pull without changing the live tree.
 
@@ -113,13 +145,17 @@ def update_plugin(
 
     from hermes_cli import plugins_cmd as pc
     from hermes_cli.plugins_cmd_catalog import RepinConsentRequired, refuse_if_installed_removed
-    from hermes_cli.plugins_cmd_git import _refuse_foreign_checkout
     from pm.store import tree_digest
 
-    target = target.resolve()
+    target = target.absolute() if repin is not None else target.resolve()
     metadata = pc._read_install_metadata()
     record = dict(metadata.get(target.name, {}))
-    if catalog_entry is None and record.get("pinned"):
+    if repin is not None:
+        from hermes_cli.plugins_cmd_repin import validate_intent, validate_installed_intent
+
+        repin = validate_intent(repin)
+        validate_installed_intent(target, record, repin, catalog_entry=catalog_entry)
+    if catalog_entry is None and record.get("pinned") and repin is None:
         raise pc.PluginOperationError(f"Plugin '{target.name}' is pinned; reinstall with an explicit --ref to change it.")
     source = catalog_entry.install_identifier if catalog_entry else str(record.get("source") or "")
     if not source or (catalog_entry is None and not (target / ".git").is_dir()):
@@ -132,7 +168,7 @@ def update_plugin(
         checked = check_local_provenance(Provenance(target.name, ProvenanceClass.GIT, target, record))
         if checked.needs_fixing:
             raise pc.PluginOperationError(checked.needs_fixing)
-        if record.get("update_url"):
+        if record.get("update_url") and repin is None:
             feed = parse_feed_yml(default_fetch(record["update_url"]))
             proposed = (feed.get("artifacts") or {}).get("git", "")
             if pc._EXACT_COMMIT_RE.fullmatch(proposed):
@@ -168,21 +204,8 @@ def update_plugin(
                 from hermes_cli.plugins_cmd_catalog import write_catalog_sidecar_record
                 write_catalog_sidecar_record(staged, catalog_record, revision)
             else:
-                # Copy Git metadata and local changes. Autostash only ever touches the copy.
-                shutil.copytree(target, staged, symlinks=True, ignore=shutil.ignore_patterns("__pycache__"))
-                if feed_revision:
-                    git = pc._resolve_git_executable()
-                    _refuse_foreign_checkout(git, target)
-                    status = pc._git_or_raise(git, target, "status", "--porcelain", failure_prefix="Could not inspect plugin edits: ")
-                    if status.stdout.strip():
-                        raise pc.PluginOperationError("Pinned feed update has local changes; save them before updating.")
-                    pc._checkout_exact_revision(staged, git, feed_revision)
-                    output = f"Updated to feed commit {feed_revision}"
-                else:
-                    ok, output = pc._git_pull_plugin_dir(staged)
-                    if not ok:
-                        raise pc.PluginOperationError(output)
-                revision = pc._git_head_revision(staged, pc._resolve_git_executable())
+                revision, output = _stage_custom_update(
+                    target, staged, source, feed_revision=feed_revision, repin=repin)
             merged = carry_user_files(staged) if carry_user_files is not None else None
             manifest = pc._read_manifest_for_install(staged)
             surface_gate(manifest, staged)

@@ -5,6 +5,7 @@ Extracted from ``hermes_cli.web_server``; helpers/state that tests monkeypatch o
 """
 
 import asyncio
+import json
 import logging
 from pathlib import Path
 from typing import Callable, Optional
@@ -297,6 +298,56 @@ async def post_agent_plugin_update(request: Request, name: str):
     return await _named_plugin_action(
         request, name, lambda n: dashboard_update_user_plugin(n, accept_capabilities=accept, force=force),
         "Update failed.", rescan=True, client_decides=("consent_required", "scan_blocked"))
+
+
+@router.get('/api/dashboard/agent-plugins/{name:path}/repin')
+async def get_agent_plugin_repin_status(request: Request, name: str):
+    _require_token(request)
+    from hermes_cli.plugins_cmd_repin import plugin_repin_status
+
+    result = await _plugin_mutation(lambda: plugin_repin_status(_validate_plugin_name(name)))
+    if not result.get('ok'):
+        raise HTTPException(404, {'code': result.get('code', 'plugin_not_found')})
+    return result
+
+
+@router.post('/api/dashboard/agent-plugins/{name:path}/repin')
+async def post_agent_plugin_repin(request: Request, name: str):
+    _require_token(request)
+    from hermes_cli.plugins_cmd import PluginOperationError
+    from hermes_cli.plugins_cmd_repin import dashboard_repin_user_plugin, validate_intent
+
+    def unique_fields(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError()
+            result[key] = value
+        return result
+
+    raw = bytearray()
+    async for chunk in request.stream():
+        raw.extend(chunk)
+        if len(raw) > 4096:
+            raise HTTPException(413, 'Plugin update request is too large.')
+    try:
+        body = json.loads(raw, object_pairs_hook=unique_fields)
+        intent = validate_intent(body)
+    except (PluginOperationError, ValueError, TypeError, UnicodeError, RecursionError):
+        raise HTTPException(400, {'code': 'invalid_plugin_repin_request'}) from None
+
+    def repin_and_rescan():
+        result = dashboard_repin_user_plugin(_validate_plugin_name(name), intent)
+        if result.get('code') in {'plugin_revision_conflict', 'plugin_repin_unavailable'}:
+            raise HTTPException(409, {'code': result['code'], 'current': result.get('current')})
+        if result.get('code') == 'plugin_not_found':
+            raise HTTPException(404, {'code': 'plugin_not_found'})
+        if result.get('code') == 'plugin_source_mismatch':
+            raise HTTPException(400, {'code': 'plugin_source_mismatch'})
+        return _plugin_action(result, 'Plugin update failed.', rescan=True,
+                              client_decides=('scan_blocked',))
+
+    return await _plugin_mutation(repin_and_rescan)
 
 
 @router.delete("/api/dashboard/agent-plugins/{name:path}")

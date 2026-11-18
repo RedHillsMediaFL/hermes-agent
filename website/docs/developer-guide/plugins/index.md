@@ -2382,6 +2382,28 @@ def register(ctx):
     ctx.register_platform_handler("discord", _wire)
 ```
 
+### Immutable updates of custom pinned plugins
+
+Dashboard clients can inspect an installed custom Git pin with authenticated
+`GET /api/dashboard/agent-plugins/{name}/repin`. Its version 1 response contains
+`ok`, `schema_version`, `name`, `source`, `revision`, `head_revision`, `pinned`,
+`can_repin`, and `reason`; unavailable source or revision fields may be `null`.
+The inspection is local and does not fetch or migrate catalog metadata.
+
+To replace the pin, send authenticated `POST` to the same route with exactly
+`{"source": "owner/repo", "expected_revision": "<installed 40-hex commit>", "ref": "<new 40-hex commit>"}`.
+The source must match the installed source. Source, revision, checkout ownership,
+and local-work checks happen before fetching. A revision conflict returns HTTP 409
+with `detail.code: plugin_revision_conflict` and `detail.current`; unsafe local
+work returns 409 with `plugin_repin_unavailable`, and a source mismatch returns
+400 with `plugin_source_mismatch`.
+
+Successful updates report `ok`, `name`, `sha`, `unchanged`, and the normal
+activation result. A retry already at the requested commit reports `unchanged: true`.
+Updates retain enablement, persistent plugin data, and local Git refs, and use
+the normal scan, dependency-consent, and PM publication gates. Catalog installs
+continue through their reviewed catalog update operation; this route has no force bypass.
+
 ### Mid-run plugin loading: what activates now vs next session
 
 A plugin can load while the gateway (or the TUI/Desktop server) is already running: `hermes plugins
