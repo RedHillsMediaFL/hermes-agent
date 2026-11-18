@@ -329,6 +329,11 @@ class PluginHost:
         return self._call("profile_call", {"path": plugin_dir, "module_name": module_name, "profile": profile,
                                            "attr": attr, "args": encode(list(args)), "kwargs": encode(kwargs)})
 
+    def reload_asgi(self, plugin_name: str, dashboard_dir: str, api_file: str) -> None:
+        """Stage the current dashboard API and replace its cached app only after it imports."""
+        self.ensure_started()
+        self._call("reload_asgi", {"plugin": plugin_name, "dashboard_dir": dashboard_dir, "api_file": api_file})
+
     def asgi_request(self, plugin_name: str, dashboard_dir: str, api_file: str, method: str, path: str,
                      query: str, headers: list, body: bytes, *, timeout: Optional[float] = None,
                      authenticated: bool = False, operator_principal: Optional[dict] = None,

@@ -84,6 +84,93 @@ def _intent(pinned):
     return {'source': pinned['source'], 'expected_revision': pinned['sha1'], 'ref': pinned['sha2']}
 
 
+@pytest.fixture
+def dashboard_pin(world, monkeypatch):
+    from hermes_cli import plugins, plugins_cmd as pc, web_server
+    from starlette.testclient import TestClient
+
+    empty = world['home'] / 'empty-bundled'
+    empty.mkdir()
+    monkeypatch.setattr(plugins, 'get_bundled_plugins_dir', lambda: empty)
+    dashboard = world['repo'] / 'dashboard'
+    dashboard.mkdir()
+    (dashboard / 'manifest.json').write_text(json.dumps({'name': 'pinned-plugin', 'api': 'plugin_api.py'}))
+    old_api = (
+        "from fastapi import APIRouter\nrouter = APIRouter()\n"
+        "@router.get('/version')\ndef version():\n    return {'version': 'old'}\n"
+    )
+    (dashboard / 'plugin_api.py').write_text(old_api)
+    before = _commit(world['repo'], 'dashboard before upgrade')
+    (dashboard / 'plugin_api.py').write_text(old_api.replace("'old'", "'updated'") +
+        "@router.get('/setup')\ndef setup():\n    return {'ready': True}\n")
+    after = _commit(world['repo'], 'dashboard after upgrade')
+    source = world['repo'].as_uri()
+    target, _, name = pc._install_plugin_core(source, force=False, ref=before)
+    pc._set_plugin_enabled(name, enable=True)
+    monkeypatch.setattr('hermes_cli.plugins_activation.reload_running_gateway',
+                        lambda: {'reloaded': True, 'activations': []})
+    routes = list(web_server.app.router.routes)
+    web_server._dashboard_plugins_cache = None
+    client = TestClient(web_server.app)
+    client.headers[web_server._SESSION_HEADER_NAME] = web_server._SESSION_TOKEN
+    try:
+        yield {**world, 'source': source, 'sha1': before, 'sha2': after, 'target': target,
+               'name': name, 'client': client, 'api': dashboard / 'plugin_api.py'}
+    finally:
+        web_server.app.router.routes[:] = routes
+        web_server._dashboard_plugins_cache = None
+        plugins._reset_plugin_managers_for_tests()
+
+
+@pytest.mark.parametrize('isolation', ['in_process', 'host'])
+def test_repin_replaces_an_already_serving_dashboard_api_without_restart(dashboard_pin, isolation):
+    from hermes_cli.config import load_config, save_config
+
+    pinned = dashboard_pin
+    config = load_config()
+    config['plugins']['isolation'] = isolation
+    save_config(config)
+    client, prefix = pinned['client'], '/api/plugins/' + pinned['name']
+    assert client.get(prefix + '/version').json() == {'version': 'old'}
+    assert client.get(prefix + '/setup').status_code == 404
+    endpoint = '/api/dashboard/agent-plugins/' + pinned['name'] + '/repin'
+    anonymous = client.post(endpoint, json=_intent(pinned), headers={'X-Hermes-Session-Token': ''})
+    assert anonymous.status_code == 401
+    assert _head(pinned['target']) == pinned['sha1']
+
+    updated = client.post(endpoint, json=_intent(pinned))
+    assert updated.status_code == 200, updated.text
+    assert updated.json()['restart_required'] is False
+    assert client.get(prefix + '/version').json() == {'version': 'updated'}
+    assert client.get(prefix + '/setup').json() == {'ready': True}
+    assert client.get(prefix + '/setup', headers={'X-Hermes-Session-Token': ''}).status_code == 401
+
+    config = load_config()
+    config['plugins']['disabled'] = [pinned['name']]
+    save_config(config)
+    assert client.get(prefix + '/setup').status_code == 404
+
+
+@pytest.mark.parametrize('isolation', ['in_process', 'host'])
+def test_failed_dashboard_api_replacement_retains_the_serving_routes(dashboard_pin, isolation):
+    from hermes_cli.config import load_config, save_config
+    from hermes_cli.plugins_cmd_repin import dashboard_repin_user_plugin
+
+    pinned = dashboard_pin
+    config = load_config()
+    config['plugins']['isolation'] = isolation
+    save_config(config)
+    prefix = '/api/plugins/' + pinned['name']
+    assert pinned['client'].get(prefix + '/version').json() == {'version': 'old'}
+    pinned['api'].write_text("raise RuntimeError('fixture API import failed')\n")
+    invalid = _commit(pinned['repo'], 'invalid dashboard update')
+    result = dashboard_repin_user_plugin(pinned['name'], {**_intent(pinned), 'ref': invalid})
+    assert result['ok'] and result['restart_required'] is True
+    assert result['activation']['deferred']['dashboard_api'] == [pinned['name']]
+    assert pinned['client'].get(prefix + '/version').json() == {'version': 'old'}
+    assert pinned['client'].get(prefix + '/setup').status_code == 404
+
+
 @pytest.mark.parametrize("enabled", [True, False])
 def test_explicit_pin_update_preserves_state_refs_enablement_and_converges_on_retry(pinned, enabled):
     from hermes_cli import plugins_cmd as pc

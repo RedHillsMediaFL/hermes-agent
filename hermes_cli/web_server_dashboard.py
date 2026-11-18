@@ -5,6 +5,7 @@ import asyncio
 import logging
 import json
 import os
+import sys
 import threading
 import time
 from contextlib import contextmanager
@@ -1168,12 +1169,60 @@ def _plugin_api_mounted(app, name: str) -> bool:
     """Whether ``app`` already serves ``/api/plugins/<name>/`` — read from the route table itself,
     so anything that rebuilds the routes (a test restoring its snapshot) cannot leave a stale
     "mounted" record that blocks the remount."""
+    return any(_is_plugin_api_route(route, name) for route in app.router.routes)
+
+
+def _is_plugin_api_route(route, name: str) -> bool:
     prefix = f"/api/plugins/{name}"
-    return any(
-        getattr(r, "endpoint", None) is not _plugin_api_hot_mount
-        and (getattr(r, "path", "") == prefix or getattr(r, "path", "").startswith(prefix + "/"))
-        for r in app.router.routes
-    )
+    path = getattr(route, "path", "")
+    return (getattr(route, "endpoint", None) is not _plugin_api_hot_mount
+            and (path == prefix or path.startswith(prefix + "/")))
+
+
+def refresh_plugin_api(name: str) -> Optional[bool]:
+    """Activate an updated API in its owning profile; keep existing routes if staging fails.
+
+    A gateway plugin reload does not reload the separately running dashboard's imported router.
+    Stage through the normal trust/isolation gates before one route-table replacement; in-flight
+    requests retain their old route objects. Secondary user APIs stay in their own plugin host.
+    None means this plugin has no enabled API to refresh.
+    """
+    from hermes_cli.plugin_isolation import ISOLATION_HOST, isolation_mode
+    from hermes_cli.plugins import get_plugin_manager
+    from hermes_cli.web_server import _get_dashboard_plugins, app
+    from hermes_cli.web_server_plugin_profiles import secondary_profile_home
+
+    with _plugin_api_mount_lock:
+        plugin = next((p for p in _get_dashboard_plugins(force_rescan=True) if p.get("name") == name), None)
+        if plugin is None or not plugin.get("_api_file") or _plugin_consent_withheld(plugin):
+            return None
+        secondary = secondary_profile_home() is not None
+        hosted = plugin.get("source") == "user" and (secondary or isolation_mode() == ISOLATION_HOST)
+        try:
+            if hosted:
+                get_plugin_manager()._plugin_host().reload_asgi(name, str(plugin["_dir"]), plugin["_api_file"])
+            if secondary:
+                return True if hosted else None  # never replace another profile's in-process router
+            staged = FastAPI(openapi_url=None, docs_url=None, redoc_url=None)
+            module_name = f"hermes_dashboard_plugin_{name}"
+            previous = sys.modules.get(module_name)
+            if not _mount_one_plugin_api(staged, plugin, *_plugin_enable_sets_here()):
+                if previous is not None:
+                    sys.modules[module_name] = previous
+                else:
+                    sys.modules.pop(module_name, None)
+                return False
+        except Exception:  # health: allow BLE001 -- staging third-party API code must retain the serving router on any import failure
+            _log.warning("Plugin %s dashboard API update did not activate; keeping its previous routes", name,
+                         exc_info=True)
+            return False
+        routes = app.router.routes
+        at = next((i for i, route in enumerate(routes) if _is_plugin_api_route(route, name)
+                   or getattr(route, "endpoint", None) is _plugin_api_hot_mount), len(routes))
+        routes[:] = (routes[:at] + staged.router.routes
+                     + [route for route in routes[at:] if not _is_plugin_api_route(route, name)])
+        app.openapi_schema = None
+        return True
 
 
 class _PluginApiHotMount:

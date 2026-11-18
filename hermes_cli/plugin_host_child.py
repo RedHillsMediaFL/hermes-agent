@@ -325,25 +325,37 @@ class HostRuntime:
         args, kwargs = self._decode_args(params)
         return encode(self._run(target(*args, **kwargs)))
 
-    def op_asgi(self, params: dict[str, Any]) -> Any:
-        """Serve one dashboard API request with the plugin's FastAPI ``router`` (loaded once)."""
+    def op_reload_asgi(self, params: dict[str, Any]) -> dict[str, bool]:
+        """Replace one hosted API cache entry after staging, retaining the old app on failure."""
+        from fastapi import FastAPI
+        from hermes_cli.plugin_isolation import import_user_code
+
         api_path = Path(str(params["dashboard_dir"])) / str(params["api_file"])
-        app = self.asgi_apps.get(str(api_path))
-        if app is None:
-            from fastapi import FastAPI
-            module_name = f"hermes_dashboard_plugin_{params['plugin']}"
-            spec = importlib.util.spec_from_file_location(module_name, api_path)
-            if spec is None or spec.loader is None:
-                raise ImportError(f"cannot load dashboard api {api_path}")
-            module = importlib.util.module_from_spec(spec)
-            sys.modules[module_name] = module
-            spec.loader.exec_module(module)
+        module_name = f"hermes_dashboard_plugin_{params['plugin']}"
+        previous = sys.modules.get(module_name)
+        try:
+            module = import_user_code(api_path, module_name)
             router = getattr(module, "router", None)
             if router is None:
                 raise AttributeError(f"dashboard api {api_path.name} has no 'router'")
             app = FastAPI()
             app.include_router(router)
-            self.asgi_apps[str(api_path)] = app
+        except Exception:
+            if previous is not None:
+                sys.modules[module_name] = previous
+            else:
+                sys.modules.pop(module_name, None)
+            raise
+        self.asgi_apps[str(api_path)] = app
+        return {"reloaded": True}
+
+    def op_asgi(self, params: dict[str, Any]) -> Any:
+        """Serve one dashboard API request with the plugin's FastAPI ``router`` (loaded once)."""
+        api_path = Path(str(params["dashboard_dir"])) / str(params["api_file"])
+        app = self.asgi_apps.get(str(api_path))
+        if app is None:
+            self.op_reload_asgi(params)
+            app = self.asgi_apps[str(api_path)]
 
         async def request() -> dict[str, Any]:
             import httpx
@@ -446,7 +458,8 @@ class HostRuntime:
 
 _HANDLERS: dict[str, Callable[[HostRuntime, dict[str, Any]], Any]] = {
     "hello": HostRuntime.op_hello, "load": HostRuntime.op_load, "load_instance": HostRuntime.op_load_instance,
-    "asgi": HostRuntime.op_asgi, "profile_call": HostRuntime.op_profile_call,
+    "asgi": HostRuntime.op_asgi, "reload_asgi": HostRuntime.op_reload_asgi,
+    "profile_call": HostRuntime.op_profile_call,
     "invoke": HostRuntime.op_invoke,
     "capability_probe": HostRuntime.op_capability_probe,
     "obj_invoke": HostRuntime.op_obj_invoke, "obj_getattr": HostRuntime.op_obj_getattr,

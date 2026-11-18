@@ -135,8 +135,8 @@ def activate_plugin_now(name: str, *, in_process: bool = True) -> dict[str, Any]
 
     Returns ``{"gateway_reloaded": bool, "activation": summary | None, "restart_required": bool}``.
     ``activation.live_now`` lists what is usable in open chats now; ``activation.deferred`` what waits
-    for the next session. ``restart_required`` is True when no gateway answered (old gateway, not
-    running), or when this process or the gateway cannot import the plugin's Python dependencies
+    for the next session. ``restart_required`` is True when a dashboard API refresh failed, no gateway
+    answered (old gateway, not running), or this process or the gateway cannot import its dependencies
     (``activation.missing_dependencies``; ``activation.missing_in`` names which: ``gateway`` and/or
     ``backend``, the Desktop / dashboard process): a running process never switches to the dependency
     generation an enable just installed, so only restarting that process loads them."""
@@ -159,8 +159,9 @@ def activate_plugin_now(name: str, *, in_process: bool = True) -> dict[str, Any]
         # The gateway's own import result decides what the gateway serves, whatever this process loaded.
         now = {k: v for k, v in ((activation or {}).get("activated_now") or {}).items() if k != "provider"}
         activation = {**(activation or gateway_activation), "activated_now": now, "load_error": gateway_error}
+    deferred_api = ((activation or {}).get("deferred") or {}).get("dashboard_api")
     return {"gateway_reloaded": reloaded, "activation": activation,
-            "restart_required": not reloaded or bool(missing)}
+            "restart_required": not reloaded or bool(missing) or bool(deferred_api)}
 
 
 def reload_running_gateway() -> Optional[dict[str, Any]]:
@@ -235,6 +236,11 @@ def _go_live(name: str) -> Optional[dict[str, Any]]:
     activation["live_now"] = {"mcp_servers": servers, "skills": skills}
     activation["deferred"] = {k: v for k, v in (activation.get("deferred") or {}).items() if k != "mcp_servers"}
     import sys
+    if "hermes_cli.web_server" in sys.modules:
+        from hermes_cli.web_server_dashboard import refresh_plugin_api
+        refreshed = refresh_plugin_api(name)
+        if refreshed is not None:
+            activation["activated_now" if refreshed else "deferred"].setdefault("dashboard_api", []).append(name)
     server = sys.modules.get("tui_gateway.server")  # loaded == this process hosts chats
     note = live_notice(activation)
     if server is not None and (servers or note):
@@ -332,6 +338,9 @@ def activation_hint(result: dict[str, Any]) -> str:
     if error := act.get("load_error"):
         return "\n".join([*lines, f"The updated provider plugin failed to load ({error}); "
                                   "the previous version keeps serving."])
+    if (act.get("deferred") or {}).get("dashboard_api"):
+        return "\n".join([*lines, "The installed dashboard API could not be activated; its previous routes remain. "
+                                  "Restart the dashboard after reviewing the plugin update."])
     if not result.get("gateway_reloaded"):
         # Live in open chats, or no gateway runs or is installed for this profile (first-time setup):
         # a messaging gateway that starts later loads it at boot, so a restart applies to nothing.

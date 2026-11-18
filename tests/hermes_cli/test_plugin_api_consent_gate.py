@@ -206,6 +206,35 @@ def test_hot_mount_keeps_the_launch_profiles_isolation(daemon):
     assert not imported.exists() and not beta_imported.exists()
 
 
+def test_api_activation_refresh_keeps_secondary_scope_and_disabled_consent(daemon, monkeypatch):
+    from hermes_cli.plugin_host import PluginHost
+    from hermes_cli.web_server_dashboard import refresh_plugin_api
+    from hermes_cli.web_server_profiles import _config_profile_scope
+
+    name = 'activation-scope'
+    _install(daemon.launch, name)
+    beta_imported = _install(daemon.beta, name)
+    _plugins(daemon.launch, enabled=[name])
+    _plugins(daemon.beta, enabled=[name])
+    ping = '/api/plugins/' + name + '/ping'
+    assert daemon.client.get(ping, headers=daemon.owner).json() == {'pong': True}
+    refreshed = []
+    monkeypatch.setattr(PluginHost, 'reload_asgi',
+                        lambda host, plugin, directory, api: refreshed.append((host.home, plugin, directory)))
+
+    with _config_profile_scope('beta'):
+        assert refresh_plugin_api(name) is True
+    assert refreshed == [(daemon.beta, name, str(beta_imported.parent))]
+    assert not beta_imported.exists()
+    assert daemon.client.get(ping, headers=daemon.owner).json() == {'pong': True}
+
+    _plugins(daemon.beta, enabled=[name], disabled=[name])
+    with _config_profile_scope('beta'):
+        assert refresh_plugin_api(name) is None
+    assert len(refreshed) == 1
+    assert daemon.client.get(ping, headers=daemon.beta_ticket()).status_code == 404
+
+
 def test_launch_consent_read_under_a_secondary_grant_keeps_the_launch_secrets(daemon, tmp_path, monkeypatch):
     """A secondary profile's first request for its bundled plugin (a ``?profile=`` selection) binds
     that profile's secrets before the cold mount reads the launch profile's lists. That read must
