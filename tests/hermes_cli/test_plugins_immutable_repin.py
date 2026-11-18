@@ -186,6 +186,26 @@ def test_status_and_update_refuse_changed_origin_before_fetch(pinned, monkeypatc
     assert _head(pinned['target']) == pinned['sha1']
 
 
+def test_repin_accepts_recorded_source_with_a_git_transport_rewrite(pinned):
+    from hermes_cli import plugins_cmd as pc
+    from hermes_cli.plugins_cmd_repin import dashboard_repin_user_plugin, plugin_repin_status
+
+    canonical = 'https://github.com/fixture/owned-plugin.git'
+    target = pinned['target']
+    _git(target, 'remote', 'set-url', 'origin', canonical)
+    _git(target, 'config', f"url.{pinned['source']}.insteadOf", canonical)
+    metadata = pc._read_install_metadata()
+    metadata[pinned['name']]['source'] = canonical
+    pc._write_install_metadata(metadata)
+    assert _git(target, 'remote', 'get-url', 'origin') == pinned['source']
+    assert plugin_repin_status(pinned['name'])['can_repin']
+    result = dashboard_repin_user_plugin(pinned['name'], {**_intent(pinned), 'source': canonical})
+    assert result['ok'] and result['sha'] == pinned['sha2'], result
+    assert _head(target) == pinned['sha2']
+    assert _git(target, 'config', '--get', 'remote.origin.url') == canonical
+    assert pc._read_install_metadata()[pinned['name']]['source'] == canonical
+
+
 def test_status_is_read_only_and_catalog_installs_cannot_bypass_review(pinned, monkeypatch):
     from hermes_cli import plugins_cmd as pc
     from hermes_cli.plugins_cmd_git import _install_metadata_path

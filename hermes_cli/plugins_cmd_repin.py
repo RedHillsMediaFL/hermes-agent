@@ -111,7 +111,9 @@ def _checkout_status(target: Path, record: dict, result: dict) -> str | None:
     result["head_revision"] = pc._git_head_revision(target, git)
     if result["head_revision"] != result["revision"]:
         return "installed_revision_changed"
-    origin = pc._git_or_raise(git, target, "remote", "get-url", "origin",
+    # Git's remote get-url expands user-owned insteadOf transport mappings;
+    # provenance is the configured repository, even when fetched via a mirror.
+    origin = pc._git_or_raise(git, target, "config", "--get", "remote.origin.url",
                                failure_prefix="Could not inspect installed Git source: ").stdout.strip()
     if not _same_source(origin, record["source"]):
         return "installed_source_changed"
